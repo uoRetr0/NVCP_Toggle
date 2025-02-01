@@ -1,208 +1,407 @@
 ﻿using System;
 using System.Linq;
-using System.Net;
+using System.IO;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Threading;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Configuration.Json;
 using NvAPIWrapper;
 using WindowsDisplayAPI;
+using Newtonsoft.Json;
 
 namespace NVCP_Toggle
 {
     class Program
     {
+        // Default settings
         static int DefaultVibrance = 50;
         static int DefaultHue = 0;
-
-        static double DefaultBrightness = .50;
-        static double DefaultContrast = .50;
+        static double DefaultBrightness = 0.50;
+        static double DefaultContrast = 0.50;
         static double DefaultGamma = 1.0;
-
         static DisplayGammaRamp DefaultGammaRamp = new DisplayGammaRamp();
+
+        // Profile management
+        static List<DisplayProfile> profiles = new List<DisplayProfile>();
+        static DisplayProfile? activeProfile = null;
+        static Timer? profileCheckTimer = null;
+        static bool isMonitoring = false;
+
+        // Profile class
+        class DisplayProfile
+        {
+            public string? ProfileName { get; set; }
+            public string? ProcessName { get; set; }
+            public int Vibrance { get; set; }
+            public int Hue { get; set; }
+            public float Brightness { get; set; }
+            public float Contrast { get; set; }
+            public float Gamma { get; set; }
+        }
 
         static void Main(string[] args)
         {
-            try
+            WriteColoredLine("NVCP Profile Manager", ConsoleColor.Cyan);
+
+            // Initialize NVIDIA API
+            try { NVIDIA.Initialize(); }
+            catch (Exception e)
             {
-                NVIDIA.Initialize();
-            }
-            catch(Exception e)
-            {
-                Console.WriteLine("\nERROR: Unable to initialize nvidia api");
-                Console.WriteLine(e.StackTrace);
-                Console.WriteLine("\nPress any key to exit...");
-                Console.ReadKey();
+                WriteColoredLine($"\nERROR: Unable to initialize NVIDIA API\n{e.StackTrace}", ConsoleColor.Red);
+                ExitPrompt();
                 return;
             }
 
-            IConfigurationRoot config;
+            // Load configuration and profiles
+            IConfigurationRoot config = LoadConfig();
+            LoadProfiles();
 
-            try
+            // Main menu loop
+            while (true)
             {
-                config = GetConfig();
-            }catch(Exception e)
-            {
-                Console.WriteLine("\nERROR: Unable to find or load 'appSettings.json'");
-                Console.WriteLine(e.StackTrace);
-                Console.WriteLine("\nPress any key to exit...");
-                Console.ReadKey();
-                return;
-            }
+                Console.Clear();
+                WriteColoredLine("NVCP Profile Manager", ConsoleColor.Cyan);
+                DisplayToggleStatus();
+                WriteColoredLine(new string('-', 50), ConsoleColor.DarkGray);
+                Console.WriteLine("0. Reset Display Settings (Default)");
+                Console.WriteLine("1. Select Profile & Toggle");
+                Console.WriteLine("2. Add New Profile");
+                Console.WriteLine("3. Remove Profile");
+                Console.WriteLine("4. List Profiles");
+                Console.WriteLine("5. Toggle Auto Profile Switching");
+                Console.WriteLine("6. Exit");
+                Console.Write("\nEnter your choice: ");
 
-
-
-            bool allDisplays = Boolean.Parse(config.GetSection("toggleAllDisplays").Value);
-            bool keyPressToExit = Boolean.Parse(config.GetSection("keyPressToExit").Value);
-
-            int[] colorSettings = LoadCustomColorSettings(config);
-            float[] gammaRamp = LoadCustomGammaRamp(config);
-
-            if (allDisplays)
-            {
-                Console.WriteLine("Toggling all displays...\n");
-                Display[] windowsDisplays = Display.GetDisplays().ToArray();
-                NvAPIWrapper.Display.Display[] nvDisplays = NvAPIWrapper.Display.Display.GetDisplays();
-
-                for(int i = 0; i < windowsDisplays.Length; i++)
+                var key = Console.ReadKey(true).KeyChar;
+                Console.WriteLine();
+                switch (key)
                 {
-                    Display windowsDisplay = windowsDisplays[i];
-                    NvAPIWrapper.Display.Display nvDisplay = nvDisplays[i];
-                    ToggleDisplay(nvDisplay, windowsDisplay, colorSettings, gammaRamp);
-                    Console.WriteLine("");
+                    case '0':
+                        ResetToDefaults();
+                        WriteColoredLine("Display reset to default settings.", ConsoleColor.Green);
+                        ExitPrompt();
+                        break;
+                    case '1': SelectAndToggleProfile(); break;
+                    case '2': AddProfile(); break;
+                    case '3': RemoveProfile(); break;
+                    case '4': ListProfiles(); break;
+                    case '5': ToggleAutoSwitching(); break;
+                    case '6': Environment.Exit(0); break;
+                    default:
+                        WriteColoredLine("Invalid option. Please try again.", ConsoleColor.Yellow);
+                        Thread.Sleep(1000);
+                        break;
                 }
             }
-            else
-            {
-                Console.WriteLine("Toggling primary display...\n");
-                NvAPIWrapper.Display.Display nvDisplay = GetNvidiaMainDisplay();
-                Display windowsDisplay = GetWindowsDisplay();
-                ToggleDisplay(nvDisplay, windowsDisplay, colorSettings, gammaRamp);
-            }
-
-            if (keyPressToExit)
-            {
-                Console.WriteLine("\nPress any key to exit...");
-                Console.ReadKey();
-            }
-            
         }
 
-        /**
-            DisplayGammaRamp does not store brightness, contrast, gamma as variables. 
-            So we must compare the rgb ramp values to the default ramp values.
-        */ 
-        private static Boolean HasDefaultGammaRamp(Display windowsDisplay){
-            DisplayGammaRamp gammaRamp = windowsDisplay.GammaRamp;
-            ushort[] redGamma = gammaRamp.Red;
-            ushort[] greenGamma = gammaRamp.Green;
-            ushort[] blueGamma = gammaRamp.Blue;
-
-            for(int i = 0; i < redGamma.Length; i++){
-                if(redGamma[i] != DefaultGammaRamp.Red[i]){
-                    return false;
-                }
-            }
-
-            for(int i = 0; i < greenGamma.Length; i++){
-                if(greenGamma[i] != DefaultGammaRamp.Green[i]){
-                    return false;
-                }
-            }
-
-            for(int i = 0; i < blueGamma.Length; i++){
-                if(blueGamma[i] != DefaultGammaRamp.Blue[i]){
-                    return false;
-                }
-            }
-
-            return true;
-
-        }
-
-        private static void ToggleDisplay(NvAPIWrapper.Display.Display nvDisplay, Display windowsDisplay, int[] colorSettings, float[] gammaRamp) 
+        // Helper method for colored output
+        static void WriteColoredLine(string text, ConsoleColor color)
         {
-            int currentVibrance = nvDisplay.DigitalVibranceControl.CurrentLevel;
-            int currentHue = nvDisplay.HUEControl.CurrentAngle;
-            
-            Console.WriteLine("Display: " + windowsDisplay.ToPathDisplayTarget().FriendlyName);
-            if (currentVibrance == DefaultVibrance && currentHue == DefaultHue && HasDefaultGammaRamp(windowsDisplay))
+            var prevColor = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            Console.WriteLine(text);
+            Console.ForegroundColor = prevColor;
+        }
+
+        static void DisplayToggleStatus()
+        {
+            var nvDisplay = GetNvidiaMainDisplay();
+            var windowsDisplay = GetWindowsDisplay();
+
+            WriteColoredLine("Current Status:", ConsoleColor.Green);
+            WriteColoredLine(new string('-', 20), ConsoleColor.DarkGray);
+
+            if (nvDisplay == null || windowsDisplay == null)
             {
-                //Toggle on
-                Console.WriteLine("Toggling Custom Settings:");
-                Console.WriteLine("Vibrance: " + colorSettings[0] + " Hue: " + colorSettings[1]);
-                Console.WriteLine("Brightness: " + gammaRamp[0] + " Contrast: " + gammaRamp[1] + " Gamma: " + gammaRamp[2]);
+                WriteColoredLine("Error: No display detected!", ConsoleColor.Red);
+                return;
+            }
 
-                nvDisplay.DigitalVibranceControl.CurrentLevel = colorSettings[0];
-                nvDisplay.HUEControl.CurrentAngle = colorSettings[1];
+            Console.WriteLine($"Digital Vibrance: {nvDisplay.DigitalVibranceControl.CurrentLevel} (Default: {DefaultVibrance})");
+            Console.WriteLine($"Hue Angle: {nvDisplay.HUEControl.CurrentAngle}° (Default: {DefaultHue}°)");
+            string gammaState = HasDefaultGammaRamp(windowsDisplay) ? "Default" : "Custom";
+            Console.WriteLine($"Gamma State: {gammaState}");
+            Console.WriteLine($"Auto Profile Switching: {(isMonitoring ? "Enabled" : "Disabled")}");
+            if (activeProfile != null)
+            {
+                Console.WriteLine($"Active Profile: {activeProfile.ProfileName}");
+            }
+        }
 
-                windowsDisplay.GammaRamp = new DisplayGammaRamp(gammaRamp[0], gammaRamp[1], gammaRamp[2]);
+        // New method: list profiles and let user select one to toggle
+        static void SelectAndToggleProfile()
+        {
+            if (profiles.Count == 0)
+            {
+                WriteColoredLine("No profiles available. Please add a profile first.", ConsoleColor.Yellow);
+                ExitPrompt();
+                return;
+            }
+
+            // List profiles without requiring "Press any key"
+            WriteColoredLine("\nSaved Profiles:", ConsoleColor.Cyan);
+            for (int i = 0; i < profiles.Count; i++)
+            {
+                Console.WriteLine($"{i + 1}. {profiles[i].ProfileName} ({profiles[i].ProcessName}.exe)");
+            }
+
+            Console.Write("\nEnter profile number to toggle (or 0 to cancel): ");
+            if (int.TryParse(Console.ReadLine(), out int selection))
+            {
+                if (selection == 0)
+                {
+                    WriteColoredLine("Profile selection canceled.", ConsoleColor.Yellow);
+                }
+                else if (selection > 0 && selection <= profiles.Count)
+                {
+                    var selectedProfile = profiles[selection - 1];
+                    // If the selected profile is already active, reset to defaults.
+                    if (activeProfile == selectedProfile)
+                    {
+                        ResetToDefaults();
+                        activeProfile = null;
+                        WriteColoredLine("Profile was active. Reverted to default settings.", ConsoleColor.Green);
+                    }
+                    else
+                    {
+                        ApplyProfile(selectedProfile);
+                        activeProfile = selectedProfile;
+                        WriteColoredLine($"Profile '{selectedProfile.ProfileName}' applied.", ConsoleColor.Green);
+                    }
+                }
+                else
+                {
+                    WriteColoredLine("Invalid profile selection.", ConsoleColor.Red);
+                }
             }
             else
             {
-                //Toggle off
-                Console.WriteLine("Resetting to default settings...");
+                WriteColoredLine("Invalid input. Please enter a number.", ConsoleColor.Red);
+            }
+
+            ExitPrompt();
+        }
+
+        static void ToggleAutoSwitching()
+        {
+            isMonitoring = !isMonitoring;
+            WriteColoredLine($"Auto profile switching {(isMonitoring ? "ENABLED" : "DISABLED")}", ConsoleColor.Magenta);
+            if (isMonitoring)
+                EnableAutoSwitching();
+            else
+                DisableAutoSwitching();
+            Thread.Sleep(1500);
+        }
+
+        static void EnableAutoSwitching()
+        {
+            profileCheckTimer = new Timer(_ => { CheckRunningProcesses(); }, null, 0, 5000);
+        }
+
+        static void DisableAutoSwitching()
+        {
+            profileCheckTimer?.Dispose();
+            activeProfile = null;
+        }
+
+        static void CheckRunningProcesses()
+        {
+            foreach (var profile in profiles)
+            {
+                if (Process.GetProcessesByName(profile.ProcessName ?? "").Length > 0)
+                {
+                    if (activeProfile != profile)
+                    {
+                        activeProfile = profile;
+                        ApplyProfile(profile);
+                        WriteColoredLine($"Auto-applied profile: {profile.ProfileName}", ConsoleColor.Green);
+                    }
+                    return;
+                }
+            }
+            if (activeProfile != null)
+            {
+                activeProfile = null;
+                ResetToDefaults();
+                WriteColoredLine("No matching processes found. Reverted to default settings.", ConsoleColor.Yellow);
+            }
+        }
+
+        static void ApplyProfile(DisplayProfile profile)
+        {
+            var nvDisplay = GetNvidiaMainDisplay();
+            var windowsDisplay = GetWindowsDisplay();
+            if (nvDisplay != null && windowsDisplay != null)
+            {
+                nvDisplay.DigitalVibranceControl.CurrentLevel = profile.Vibrance;
+                nvDisplay.HUEControl.CurrentAngle = profile.Hue;
+                windowsDisplay.GammaRamp = new DisplayGammaRamp(
+                    profile.Brightness,
+                    profile.Contrast,
+                    profile.Gamma
+                );
+            }
+        }
+
+        static void AddProfile()
+        {
+            var newProfile = new DisplayProfile();
+
+            Console.Write("Enter profile name: ");
+            newProfile.ProfileName = Console.ReadLine();
+            Console.Write("Enter process name (without .exe): ");
+            newProfile.ProcessName = Console.ReadLine();
+            Console.Write("Enter vibrance (0-100): ");
+            if (int.TryParse(Console.ReadLine(), out int vibrance))
+                newProfile.Vibrance = vibrance;
+            Console.Write("Enter hue (-180 to 180): ");
+            if (int.TryParse(Console.ReadLine(), out int hue))
+                newProfile.Hue = hue;
+            Console.Write("Enter brightness (0.0-1.0): ");
+            if (float.TryParse(Console.ReadLine(), out float brightness))
+                newProfile.Brightness = brightness;
+            Console.Write("Enter contrast (0.0-1.0): ");
+            if (float.TryParse(Console.ReadLine(), out float contrast))
+                newProfile.Contrast = contrast;
+            Console.Write("Enter gamma (0.1-3.0): ");
+            if (float.TryParse(Console.ReadLine(), out float gamma))
+                newProfile.Gamma = gamma;
+
+            profiles.Add(newProfile);
+            SaveProfiles();
+            WriteColoredLine("Profile saved!", ConsoleColor.Green);
+            Thread.Sleep(1000);
+        }
+
+        static void RemoveProfile()
+        {
+            if (profiles.Count == 0)
+            {
+                WriteColoredLine("No profiles available to remove.", ConsoleColor.Yellow);
+                ExitPrompt();
+                return;
+            }
+
+            WriteColoredLine("\nSaved Profiles:", ConsoleColor.Cyan);
+            for (int i = 0; i < profiles.Count; i++)
+            {
+                Console.WriteLine($"{i + 1}. {profiles[i].ProfileName} ({profiles[i].ProcessName}.exe)");
+            }
+
+            Console.Write("\nEnter profile number to remove (or 0 to cancel): ");
+            if (int.TryParse(Console.ReadLine(), out int index))
+            {
+                if (index == 0)
+                {
+                    WriteColoredLine("Profile removal canceled.", ConsoleColor.Yellow);
+                }
+                else if (index > 0 && index <= profiles.Count)
+                {
+                    profiles.RemoveAt(index - 1);
+                    SaveProfiles();
+                    WriteColoredLine("Profile removed!", ConsoleColor.Green);
+                }
+                else
+                {
+                    WriteColoredLine("Invalid selection!", ConsoleColor.Red);
+                }
+            }
+            else
+            {
+                WriteColoredLine("Invalid input. Please enter a number.", ConsoleColor.Red);
+            }
+
+            Thread.Sleep(1000);
+        }
+
+        static void ListProfiles()
+        {
+            if (profiles.Count == 0)
+            {
+                WriteColoredLine("No profiles available.", ConsoleColor.Yellow);
+            }
+            else
+            {
+                WriteColoredLine("\nSaved Profiles:", ConsoleColor.Cyan);
+                for (int i = 0; i < profiles.Count; i++)
+                {
+                    Console.WriteLine($"{i + 1}. {profiles[i].ProfileName} ({profiles[i].ProcessName}.exe)");
+                }
+            }
+
+            ExitPrompt();
+        }
+
+        static void LoadProfiles()
+        {
+            var profilePath = Path.Combine(Environment.CurrentDirectory, "profiles.json");
+            if (File.Exists(profilePath))
+            {
+                var json = File.ReadAllText(profilePath);
+                var data = JsonConvert.DeserializeObject<Dictionary<string, List<DisplayProfile>>>(json);
+                if (data != null && data.ContainsKey("Profiles"))
+                {
+                    profiles = data["Profiles"];
+                }
+            }
+        }
+
+        static void SaveProfiles()
+        {
+            var json = JsonConvert.SerializeObject(new { Profiles = profiles }, Formatting.Indented);
+            File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "profiles.json"), json);
+        }
+
+        static bool HasDefaultGammaRamp(Display windowsDisplay)
+        {
+            var gammaRamp = windowsDisplay.GammaRamp;
+            return gammaRamp.Red.SequenceEqual(DefaultGammaRamp.Red) &&
+                   gammaRamp.Green.SequenceEqual(DefaultGammaRamp.Green) &&
+                   gammaRamp.Blue.SequenceEqual(DefaultGammaRamp.Blue);
+        }
+
+        static void ResetToDefaults()
+        {
+            var nvDisplay = GetNvidiaMainDisplay();
+            var windowsDisplay = GetWindowsDisplay();
+            if (nvDisplay != null && windowsDisplay != null)
+            {
                 nvDisplay.DigitalVibranceControl.CurrentLevel = DefaultVibrance;
                 nvDisplay.HUEControl.CurrentAngle = DefaultHue;
-
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness, DefaultContrast, DefaultGamma);
             }
         }
 
-        private static IConfigurationRoot GetConfig()
+        static IConfigurationRoot LoadConfig()
         {
-
             return new ConfigurationBuilder()
                 .SetBasePath(Environment.CurrentDirectory)
                 .AddJsonFile("appSettings.json", optional: false)
                 .Build();
         }
 
-        private static int[] LoadCustomColorSettings(IConfigurationRoot config)
+        static Display? GetWindowsDisplay()
         {
-            int[] colors = new int[2];
-            colors[0] = config.GetValue<int>("vibrance");
-            colors[1] = config.GetValue<int>("hue");
-            return colors;
+            return Display.GetDisplays().FirstOrDefault(d => d.DisplayScreen.IsPrimary);
         }
 
-        private static float[] LoadCustomGammaRamp(IConfigurationRoot config)
+        static NvAPIWrapper.Display.Display? GetNvidiaMainDisplay()
         {
-            float[] gamma = new float[3];
-            gamma[0] = config.GetValue<float>("brightness");
-            gamma[1] = config.GetValue<float>("contrast");
-            gamma[2] = config.GetValue<float>("gamma");
-            return gamma;
-        }
-
-        private static Display GetWindowsDisplay()
-        {
-            Display[] displays = Display.GetDisplays().ToArray();
-            foreach(Display display in displays)
+            var allDisplays = NvAPIWrapper.Display.Display.GetDisplays();
+            var config = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig();
+            for (int i = 0; i < config.Length; i++)
             {
-                if (display.DisplayScreen.IsPrimary)
-                {
-                    return display;
-                }
-            }
-            
-            
-            return null;
-        }
-
-
-        private static NvAPIWrapper.Display.Display GetNvidiaMainDisplay()
-        {
-            NvAPIWrapper.Display.Display[] allDisplays = NvAPIWrapper.Display.Display.GetDisplays();
-            for(int i = 0; i < NvAPIWrapper.Display.PathInfo.GetDisplaysConfig().Length; i++)
-            {
-                NvAPIWrapper.Display.PathInfo info = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig()[i];
-                if(info.IsGDIPrimary)
-                {
+                if (config[i].IsGDIPrimary)
                     return allDisplays[i];
-                }
             }
-
             return null;
-            
+        }
+
+        static void ExitPrompt()
+        {
+            WriteColoredLine("\nPress any key to continue...", ConsoleColor.DarkGray);
+            Console.ReadKey();
         }
     }
 }
