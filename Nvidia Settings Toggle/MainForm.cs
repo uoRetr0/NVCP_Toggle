@@ -114,6 +114,7 @@ namespace NVCP_Toggle
         const int DISP_CHANGE_RESTART = 1;
 
         // Helper method to change resolution given parameters.
+        // Returns the result code.
         private int ChangeResolution(int width, int height, int frequency, int bpp)
         {
             DEVMODE dm = new DEVMODE();
@@ -159,7 +160,11 @@ namespace NVCP_Toggle
         // Resolution changer controls
         private ComboBox cmbResolutions;
         private Button btnApplyResolution;
-        private Button btnResetResolution;  // New reset button for manual resolution change
+        private Button btnResetResolution;  // Reset button for manual resolution change
+
+        // NotifyIcon for running in background.
+        private NotifyIcon trayIcon;
+        private ContextMenuStrip trayMenu;
 
         #endregion
 
@@ -167,6 +172,8 @@ namespace NVCP_Toggle
         {
             InitializeComponent();
             Load += MainForm_Load;
+            // Handle minimize event for background run.
+            this.Resize += MainForm_Resize;
         }
 
         #region Form Load and Initialization
@@ -226,6 +233,9 @@ namespace NVCP_Toggle
 
             // Populate available resolutions for manual change.
             PopulateResolutions();
+
+            // Setup tray icon for background running.
+            SetupTrayIcon();
 
             // Update status display
             UpdateStatusDisplay();
@@ -336,9 +346,30 @@ namespace NVCP_Toggle
         {
             if (cmbResolutions.SelectedItem is ResolutionMode mode)
             {
+                // Save the current resolution (as backup) before applying new one.
+                int backupWidth = defaultWidth, backupHeight = defaultHeight, backupFreq = defaultFrequency, backupBpp = defaultBpp;
+                // Attempt to change resolution.
                 if (ChangeResolution(mode.Width, mode.Height, mode.Frequency, mode.BitsPerPel) == DISP_CHANGE_SUCCESSFUL)
                 {
-                    MessageBox.Show("Resolution changed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // Show confirmation dialog.
+                    using (var confirmDlg = new ResolutionConfirmForm(15))
+                    {
+                        if (confirmDlg.ShowDialog() == DialogResult.OK)
+                        {
+                            MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            // Update default to new resolution.
+                            defaultWidth = mode.Width;
+                            defaultHeight = mode.Height;
+                            defaultFrequency = mode.Frequency;
+                            defaultBpp = mode.BitsPerPel;
+                        }
+                        else
+                        {
+                            // Revert resolution if not confirmed.
+                            ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
+                            MessageBox.Show("Resolution change canceled. Reverted to previous resolution.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
                 }
                 else
                 {
@@ -347,7 +378,7 @@ namespace NVCP_Toggle
             }
         }
 
-        // New button to reset manual resolution change back to default.
+        // Reset manual resolution change back to default.
         private void btnResetResolution_Click(object sender, EventArgs e)
         {
             if (ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp) == DISP_CHANGE_SUCCESSFUL)
@@ -357,6 +388,16 @@ namespace NVCP_Toggle
             else
             {
                 MessageBox.Show("Failed to reset resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // Minimize to tray when form is minimized.
+        private void MainForm_Resize(object sender, EventArgs e)
+        {
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.Hide();
+                trayIcon.Visible = true;
             }
         }
 
@@ -385,11 +426,31 @@ namespace NVCP_Toggle
                 nvDisplay.DigitalVibranceControl.CurrentLevel = profile.Vibrance;
                 nvDisplay.HUEControl.CurrentAngle = profile.Hue;
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(profile.Brightness, profile.Contrast, profile.Gamma);
-                // If resolution fields are nonzero, change resolution.
+                // If resolution fields are nonzero, change resolution with confirmation.
                 if (profile.ResolutionWidth != 0 && profile.ResolutionHeight != 0 &&
                     profile.ResolutionFrequency != 0 && profile.ResolutionBpp != 0)
                 {
-                    ChangeResolution(profile.ResolutionWidth, profile.ResolutionHeight, profile.ResolutionFrequency, profile.ResolutionBpp);
+                    // Backup current resolution.
+                    int backupWidth = defaultWidth, backupHeight = defaultHeight, backupFreq = defaultFrequency, backupBpp = defaultBpp;
+                    if (ChangeResolution(profile.ResolutionWidth, profile.ResolutionHeight, profile.ResolutionFrequency, profile.ResolutionBpp) == DISP_CHANGE_SUCCESSFUL)
+                    {
+                        using (var confirmDlg = new ResolutionConfirmForm(15))
+                        {
+                            if (confirmDlg.ShowDialog() == DialogResult.OK)
+                            {
+                                MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                defaultWidth = profile.ResolutionWidth;
+                                defaultHeight = profile.ResolutionHeight;
+                                defaultFrequency = profile.ResolutionFrequency;
+                                defaultBpp = profile.ResolutionBpp;
+                            }
+                            else
+                            {
+                                ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
+                                MessageBox.Show("Resolution change canceled. Reverted to previous resolution.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -598,6 +659,31 @@ namespace NVCP_Toggle
 
         #endregion
 
+        #region Tray Icon (Run in Background)
+
+        private void SetupTrayIcon()
+        {
+            trayMenu = new ContextMenuStrip();
+            trayMenu.Items.Add("Show", null, (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; });
+            trayMenu.Items.Add("Exit", null, (s, e) => { trayIcon.Visible = false; Application.Exit(); });
+
+            trayIcon = new NotifyIcon
+            {
+                Text = "NVCP Profile Manager",
+                Icon = this.Icon,
+                ContextMenuStrip = trayMenu,
+                Visible = false
+            };
+
+            trayIcon.DoubleClick += (s, e) =>
+            {
+                this.Show();
+                this.WindowState = FormWindowState.Normal;
+            };
+        }
+
+        #endregion
+
         #region Designer Code
 
         private void InitializeComponent()
@@ -683,7 +769,6 @@ namespace NVCP_Toggle
             btnApplyResolution.Click += btnApplyResolution_Click;
             this.Controls.Add(btnApplyResolution);
 
-            // New Reset button for resolution
             btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 540, Width = 150 };
             btnResetResolution.Click += btnResetResolution_Click;
             this.Controls.Add(btnResetResolution);
