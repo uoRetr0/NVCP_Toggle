@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Extensions.Configuration;
 using NvAPIWrapper;
@@ -47,9 +46,8 @@ namespace NVCP_Toggle
         private List<DisplayProfile> profiles = new List<DisplayProfile>();
         private DisplayProfile? activeProfile = null;
         private bool isMonitoring = false;
-        // Use a Windows Forms Timer for UI thread safety.
+        // Use Windows Forms Timer explicitly
         private System.Windows.Forms.Timer profileCheckTimer = new System.Windows.Forms.Timer();
-
 
         #endregion
 
@@ -67,6 +65,7 @@ namespace NVCP_Toggle
         // Profile management controls
         private ListBox lstProfiles;
         private Button btnAddProfile;
+        private Button btnEditProfile;
         private Button btnRemoveProfile;
         private Button btnApplyProfile;
         private CheckBox chkAutoSwitch;
@@ -153,14 +152,34 @@ namespace NVCP_Toggle
 
         private void btnAddProfile_Click(object sender, EventArgs e)
         {
-            // Open a dialog (or use InputBox-style prompts) to add a profile.
-            using (var dlg = new AddProfileForm())
+            // Open Add Profile dialog
+            using (var dlg = new AddEditProfileForm())
             {
+                dlg.Text = "Add Profile";
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
                     profiles.Add(dlg.Profile);
                     SaveProfiles();
                     UpdateProfileList();
+                }
+            }
+        }
+
+        private void btnEditProfile_Click(object sender, EventArgs e)
+        {
+            if (lstProfiles.SelectedIndex >= 0)
+            {
+                // Load the selected profile for editing
+                var selectedProfile = profiles[lstProfiles.SelectedIndex];
+                using (var dlg = new AddEditProfileForm(selectedProfile))
+                {
+                    dlg.Text = "Edit Profile";
+                    if (dlg.ShowDialog() == DialogResult.OK)
+                    {
+                        profiles[lstProfiles.SelectedIndex] = dlg.Profile;
+                        SaveProfiles();
+                        UpdateProfileList();
+                    }
                 }
             }
         }
@@ -358,7 +377,6 @@ namespace NVCP_Toggle
         {
             var allDisplays = NvAPIWrapper.Display.Display.GetDisplays();
             var config = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig();
-            // This implementation assumes the primary GDI display corresponds to the first display.
             for (int i = 0; i < config.Length; i++)
             {
                 if (config[i].IsGDIPrimary)
@@ -373,9 +391,9 @@ namespace NVCP_Toggle
 
         private void InitializeComponent()
         {
-            // Set up form
+            // Set up form – increased to 650x550 for more space
             this.Text = "NVCP Profile Manager";
-            this.ClientSize = new System.Drawing.Size(600, 500);
+            this.ClientSize = new System.Drawing.Size(650, 550);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
 
@@ -383,28 +401,28 @@ namespace NVCP_Toggle
             FormsLabel lblManual = new FormsLabel { Text = "Manual Settings", Left = 20, Top = 20, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
             this.Controls.Add(lblManual);
 
-            FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance:", Left = 20, Top = 60, AutoSize = true };
-            nudVibrance = new NumericUpDown { Left = 120, Top = 60, Minimum = 0, Maximum = 100 };
+            FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance (0–100):", Left = 20, Top = 60, AutoSize = true };
+            nudVibrance = new NumericUpDown { Left = 160, Top = 60, Minimum = 0, Maximum = 100 };
             this.Controls.Add(lblVibrance);
             this.Controls.Add(nudVibrance);
 
-            FormsLabel lblHue = new FormsLabel { Text = "Hue:", Left = 20, Top = 90, AutoSize = true };
-            nudHue = new NumericUpDown { Left = 120, Top = 90, Minimum = -180, Maximum = 180 };
+            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = 20, Top = 90, AutoSize = true };
+            nudHue = new NumericUpDown { Left = 160, Top = 90, Minimum = -180, Maximum = 180 };
             this.Controls.Add(lblHue);
             this.Controls.Add(nudHue);
 
-            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness:", Left = 20, Top = 120, AutoSize = true };
-            nudBrightness = new NumericUpDown { Left = 120, Top = 120, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
+            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = 20, Top = 120, AutoSize = true };
+            nudBrightness = new NumericUpDown { Left = 160, Top = 120, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
             this.Controls.Add(lblBrightness);
             this.Controls.Add(nudBrightness);
 
-            FormsLabel lblContrast = new FormsLabel { Text = "Contrast:", Left = 20, Top = 150, AutoSize = true };
-            nudContrast = new NumericUpDown { Left = 120, Top = 150, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
+            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = 20, Top = 150, AutoSize = true };
+            nudContrast = new NumericUpDown { Left = 160, Top = 150, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
             this.Controls.Add(lblContrast);
             this.Controls.Add(nudContrast);
 
-            FormsLabel lblGamma = new FormsLabel { Text = "Gamma:", Left = 20, Top = 180, AutoSize = true };
-            nudGamma = new NumericUpDown { Left = 120, Top = 180, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M };
+            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = 20, Top = 180, AutoSize = true };
+            nudGamma = new NumericUpDown { Left = 160, Top = 180, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M };
             this.Controls.Add(lblGamma);
             this.Controls.Add(nudGamma);
 
@@ -427,11 +445,15 @@ namespace NVCP_Toggle
             btnAddProfile.Click += btnAddProfile_Click;
             this.Controls.Add(btnAddProfile);
 
-            btnRemoveProfile = new Button { Text = "Remove Profile", Left = 380, Top = 340, Width = 150 };
+            btnEditProfile = new Button { Text = "Edit Profile", Left = 380, Top = 340, Width = 150 };
+            btnEditProfile.Click += btnEditProfile_Click;
+            this.Controls.Add(btnEditProfile);
+
+            btnRemoveProfile = new Button { Text = "Remove Profile", Left = 380, Top = 380, Width = 150 };
             btnRemoveProfile.Click += btnRemoveProfile_Click;
             this.Controls.Add(btnRemoveProfile);
 
-            btnApplyProfile = new Button { Text = "Apply Profile", Left = 380, Top = 380, Width = 150 };
+            btnApplyProfile = new Button { Text = "Apply Profile", Left = 380, Top = 420, Width = 150 };
             btnApplyProfile.Click += btnApplyProfile_Click;
             this.Controls.Add(btnApplyProfile);
 
@@ -439,7 +461,7 @@ namespace NVCP_Toggle
             chkAutoSwitch.CheckedChanged += chkAutoSwitch_CheckedChanged;
             this.Controls.Add(chkAutoSwitch);
 
-            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 460, AutoSize = true, BorderStyle = BorderStyle.FixedSingle, Width = 550, Height = 30 };
+            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 460, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 550, Height = 70 };
             this.Controls.Add(lblStatus);
         }
 
