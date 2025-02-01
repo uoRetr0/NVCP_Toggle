@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Extensions.Configuration;
 using NvAPIWrapper;
@@ -27,11 +28,14 @@ namespace NVCP_Toggle
         private const float DefaultGamma = 1.0f;
         private static readonly DisplayGammaRamp DefaultGammaRamp = new DisplayGammaRamp();
 
+        // Saved default resolution values.
+        private int defaultWidth, defaultHeight, defaultFrequency, defaultBpp;
+
         #endregion
 
         #region Profile Management Fields
 
-        // Profile definition
+        // Extended Profile definition (new resolution properties added)
         public class DisplayProfile
         {
             public string ProfileName { get; set; } = "";
@@ -41,13 +45,94 @@ namespace NVCP_Toggle
             public float Brightness { get; set; }
             public float Contrast { get; set; }
             public float Gamma { get; set; }
+            // New resolution settings; if 0 then resolution change is not applied.
+            public int ResolutionWidth { get; set; }
+            public int ResolutionHeight { get; set; }
+            public int ResolutionFrequency { get; set; }
+            public int ResolutionBpp { get; set; }
         }
 
         private List<DisplayProfile> profiles = new List<DisplayProfile>();
         private DisplayProfile? activeProfile = null;
         private bool isMonitoring = false;
-        // Use Windows Forms Timer explicitly
+        // Use Windows Forms Timer explicitly.
         private System.Windows.Forms.Timer profileCheckTimer = new System.Windows.Forms.Timer();
+
+        #endregion
+
+        #region Resolution Changing (P/Invoke)
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmDeviceName;
+            public short dmSpecVersion;
+            public short dmDriverVersion;
+            public short dmSize;
+            public short dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX;
+            public int dmPositionY;
+            public int dmDisplayOrientation;
+            public int dmDisplayFixedOutput;
+            public short dmColor;
+            public short dmDuplex;
+            public short dmYResolution;
+            public short dmTTOption;
+            public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel;
+            public int dmPelsWidth;
+            public int dmPelsHeight;
+            public int dmDisplayFlags;
+            public int dmDisplayFrequency;
+            public int dmICMMethod;
+            public int dmICMIntent;
+            public int dmMediaType;
+            public int dmDitherType;
+            public int dmReserved1;
+            public int dmReserved2;
+            public int dmPanningWidth;
+            public int dmPanningHeight;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern bool EnumDisplaySettings(
+            string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern int ChangeDisplaySettingsEx(
+            string lpszDeviceName, ref DEVMODE lpDevMode, IntPtr hwnd, uint dwflags, IntPtr lParam);
+
+        const int ENUM_CURRENT_SETTINGS = -1;
+        const int CDS_UPDATEREGISTRY = 0x00000001;
+        const int CDS_TEST = 0x00000002;
+        const int DISP_CHANGE_SUCCESSFUL = 0;
+        const int DISP_CHANGE_RESTART = 1;
+
+        // Helper method to change resolution given parameters.
+        private int ChangeResolution(int width, int height, int frequency, int bpp)
+        {
+            DEVMODE dm = new DEVMODE();
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+
+            dm.dmPelsWidth = width;
+            dm.dmPelsHeight = height;
+            dm.dmDisplayFrequency = frequency;
+            dm.dmBitsPerPel = bpp;
+            // dmFields: DM_PELSWIDTH (0x80000) | DM_PELSHEIGHT (0x100000) | DM_DISPLAYFREQUENCY (0x400000)
+            dm.dmFields = 0x80000 | 0x100000 | 0x400000;
+
+            int ret = ChangeDisplaySettingsEx(null, ref dm, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
+            if (ret == DISP_CHANGE_SUCCESSFUL)
+            {
+                ret = ChangeDisplaySettingsEx(null, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
+            }
+            return ret;
+        }
 
         #endregion
 
@@ -71,6 +156,11 @@ namespace NVCP_Toggle
         private CheckBox chkAutoSwitch;
         private FormsLabel lblStatus;
 
+        // Resolution changer controls
+        private ComboBox cmbResolutions;
+        private Button btnApplyResolution;
+        private Button btnResetResolution;  // New reset button for manual resolution change
+
         #endregion
 
         public MainForm()
@@ -83,6 +173,17 @@ namespace NVCP_Toggle
 
         private void MainForm_Load(object sender, EventArgs e)
         {
+            // Save the default resolution using ENUM_CURRENT_SETTINGS.
+            DEVMODE dm = new DEVMODE();
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+            if (EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm))
+            {
+                defaultWidth = dm.dmPelsWidth;
+                defaultHeight = dm.dmPelsHeight;
+                defaultFrequency = dm.dmDisplayFrequency;
+                defaultBpp = dm.dmBitsPerPel;
+            }
+
             // Initialize NVIDIA API
             try
             {
@@ -95,7 +196,7 @@ namespace NVCP_Toggle
                 return;
             }
 
-            // Load configuration (if needed) and profiles
+            // Load configuration and profiles
             LoadProfiles();
             UpdateProfileList();
 
@@ -103,7 +204,7 @@ namespace NVCP_Toggle
             profileCheckTimer.Interval = 5000;
             profileCheckTimer.Tick += (s, ev) => { CheckRunningProcesses(); };
 
-            // Load manual settings from appSettings.json (if exists)
+            // Load manual settings and autoSwitch from appSettings.json (if exists)
             try
             {
                 var config = new ConfigurationBuilder()
@@ -116,11 +217,15 @@ namespace NVCP_Toggle
                 nudBrightness.Value = (decimal)config.GetValue<float>("brightness", DefaultBrightness);
                 nudContrast.Value = (decimal)config.GetValue<float>("contrast", DefaultContrast);
                 nudGamma.Value = (decimal)config.GetValue<float>("gamma", DefaultGamma);
+                chkAutoSwitch.Checked = config.GetValue<bool>("autoSwitch", false);
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error loading manual settings: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+
+            // Populate available resolutions for manual change.
+            PopulateResolutions();
 
             // Update status display
             UpdateStatusDisplay();
@@ -141,6 +246,7 @@ namespace NVCP_Toggle
             ApplyManualSettings(vibrance, hue, brightness, contrast, gamma);
             activeProfile = null;
             UpdateStatusDisplay();
+            SaveManualSettings();
         }
 
         private void btnReset_Click(object sender, EventArgs e)
@@ -152,7 +258,6 @@ namespace NVCP_Toggle
 
         private void btnAddProfile_Click(object sender, EventArgs e)
         {
-            // Open Add Profile dialog
             using (var dlg = new AddEditProfileForm())
             {
                 dlg.Text = "Add Profile";
@@ -169,7 +274,6 @@ namespace NVCP_Toggle
         {
             if (lstProfiles.SelectedIndex >= 0)
             {
-                // Load the selected profile for editing
                 var selectedProfile = profiles[lstProfiles.SelectedIndex];
                 using (var dlg = new AddEditProfileForm(selectedProfile))
                 {
@@ -225,6 +329,35 @@ namespace NVCP_Toggle
                 activeProfile = null;
             }
             UpdateStatusDisplay();
+            SaveManualSettings();
+        }
+
+        private void btnApplyResolution_Click(object sender, EventArgs e)
+        {
+            if (cmbResolutions.SelectedItem is ResolutionMode mode)
+            {
+                if (ChangeResolution(mode.Width, mode.Height, mode.Frequency, mode.BitsPerPel) == DISP_CHANGE_SUCCESSFUL)
+                {
+                    MessageBox.Show("Resolution changed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Failed to change resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        // New button to reset manual resolution change back to default.
+        private void btnResetResolution_Click(object sender, EventArgs e)
+        {
+            if (ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp) == DISP_CHANGE_SUCCESSFUL)
+            {
+                MessageBox.Show("Resolution reset to default.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show("Failed to reset resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         #endregion
@@ -252,6 +385,12 @@ namespace NVCP_Toggle
                 nvDisplay.DigitalVibranceControl.CurrentLevel = profile.Vibrance;
                 nvDisplay.HUEControl.CurrentAngle = profile.Hue;
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(profile.Brightness, profile.Contrast, profile.Gamma);
+                // If resolution fields are nonzero, change resolution.
+                if (profile.ResolutionWidth != 0 && profile.ResolutionHeight != 0 &&
+                    profile.ResolutionFrequency != 0 && profile.ResolutionBpp != 0)
+                {
+                    ChangeResolution(profile.ResolutionWidth, profile.ResolutionHeight, profile.ResolutionFrequency, profile.ResolutionBpp);
+                }
             }
         }
 
@@ -264,23 +403,22 @@ namespace NVCP_Toggle
                 nvDisplay.DigitalVibranceControl.CurrentLevel = DefaultVibrance;
                 nvDisplay.HUEControl.CurrentAngle = DefaultHue;
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness, DefaultContrast, DefaultGamma);
+                // Revert resolution to saved default.
+                ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp);
             }
         }
 
         private void CheckRunningProcesses()
         {
-            // Check if any profile's process is running
             foreach (var profile in profiles)
             {
                 if (!string.IsNullOrEmpty(profile.ProcessName) &&
                     Process.GetProcessesByName(profile.ProcessName).Length > 0)
                 {
-                    // If found and not already active, apply it.
                     if (activeProfile != profile)
                     {
                         activeProfile = profile;
                         ApplyProfile(profile);
-                        // Use Invoke to update UI safely.
                         this.Invoke((MethodInvoker)delegate {
                             UpdateStatusDisplay();
                         });
@@ -288,7 +426,6 @@ namespace NVCP_Toggle
                     return;
                 }
             }
-            // If no matching process is found and a profile was active, revert.
             if (activeProfile != null)
             {
                 activeProfile = null;
@@ -318,7 +455,8 @@ namespace NVCP_Toggle
                          $"Hue Angle: {nvDisplay.HUEControl.CurrentAngle}° (Default: {DefaultHue}°)\n" +
                          $"Gamma: {gammaState}\n" +
                          $"Active Profile: {(activeProfile != null ? activeProfile.ProfileName : "None")}\n" +
-                         $"Auto Profile Switching: {(isMonitoring ? "Enabled" : "Disabled")}";
+                         $"Auto Profile Switching: {(isMonitoring ? "Enabled" : "Disabled")}\n" +
+                         $"Default Resolution: {defaultWidth}x{defaultHeight}, {defaultFrequency} Hz, {defaultBpp} bpp";
             }
             lblStatus.Text = status;
         }
@@ -328,13 +466,16 @@ namespace NVCP_Toggle
             lstProfiles.Items.Clear();
             foreach (var profile in profiles)
             {
-                lstProfiles.Items.Add($"{profile.ProfileName} ({profile.ProcessName}.exe)");
+                string resInfo = (profile.ResolutionWidth != 0)
+                    ? $"{profile.ResolutionWidth}x{profile.ResolutionHeight}"
+                    : "Unchanged";
+                lstProfiles.Items.Add($"{profile.ProfileName} ({profile.ProcessName}.exe) - Res: {resInfo}");
             }
         }
 
         #endregion
 
-        #region Profile Persistence
+        #region Profile Persistence and Manual Settings Saving
 
         private void LoadProfiles()
         {
@@ -354,6 +495,21 @@ namespace NVCP_Toggle
         {
             var json = JsonConvert.SerializeObject(new { Profiles = profiles }, Formatting.Indented);
             File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "profiles.json"), json);
+        }
+
+        private void SaveManualSettings()
+        {
+            var settings = new
+            {
+                vibrance = (int)nudVibrance.Value,
+                hue = (int)nudHue.Value,
+                brightness = (float)nudBrightness.Value,
+                contrast = (float)nudContrast.Value,
+                gamma = (float)nudGamma.Value,
+                autoSwitch = chkAutoSwitch.Checked
+            };
+            string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+            File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "appSettings.json"), json);
         }
 
         #endregion
@@ -387,13 +543,68 @@ namespace NVCP_Toggle
 
         #endregion
 
+        #region Resolution Changer Methods
+
+        // Helper class to represent a resolution mode.
+        private class ResolutionMode
+        {
+            public int Width { get; set; }
+            public int Height { get; set; }
+            public int Frequency { get; set; }
+            public int BitsPerPel { get; set; }
+
+            public override string ToString()
+            {
+                return $"{Width} x {Height}, {Frequency} Hz, {BitsPerPel} bpp";
+            }
+        }
+
+        private List<ResolutionMode> availableModes = new List<ResolutionMode>();
+
+        private void PopulateResolutions()
+        {
+            availableModes.Clear();
+            cmbResolutions.Items.Clear();
+
+            DEVMODE dm = new DEVMODE();
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+
+            int modeNum = 0;
+            while (EnumDisplaySettings(null, modeNum, ref dm))
+            {
+                var mode = new ResolutionMode
+                {
+                    Width = dm.dmPelsWidth,
+                    Height = dm.dmPelsHeight,
+                    Frequency = dm.dmDisplayFrequency,
+                    BitsPerPel = dm.dmBitsPerPel
+                };
+                if (!availableModes.Any(m => m.Width == mode.Width && m.Height == mode.Height &&
+                                               m.Frequency == mode.Frequency && m.BitsPerPel == mode.BitsPerPel))
+                {
+                    availableModes.Add(mode);
+                    cmbResolutions.Items.Add(mode);
+                }
+                modeNum++;
+            }
+
+            // Optionally select current resolution.
+            var current = availableModes.FirstOrDefault();
+            if (current != null)
+            {
+                cmbResolutions.SelectedItem = current;
+            }
+        }
+
+        #endregion
+
         #region Designer Code
 
         private void InitializeComponent()
         {
-            // Set up form – increased to 650x550 for more space
+            // Set up form – increased to 650x600 for more space
             this.Text = "NVCP Profile Manager";
-            this.ClientSize = new System.Drawing.Size(650, 550);
+            this.ClientSize = new System.Drawing.Size(650, 600);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
 
@@ -461,7 +672,24 @@ namespace NVCP_Toggle
             chkAutoSwitch.CheckedChanged += chkAutoSwitch_CheckedChanged;
             this.Controls.Add(chkAutoSwitch);
 
-            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 460, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 550, Height = 70 };
+            // --- Resolution Changer Controls ---
+            FormsLabel lblResolution = new FormsLabel { Text = "Resolution Changer", Left = 20, Top = 470, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            this.Controls.Add(lblResolution);
+
+            cmbResolutions = new ComboBox { Left = 20, Top = 500, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList };
+            this.Controls.Add(cmbResolutions);
+
+            btnApplyResolution = new Button { Text = "Apply Resolution", Left = 380, Top = 500, Width = 150 };
+            btnApplyResolution.Click += btnApplyResolution_Click;
+            this.Controls.Add(btnApplyResolution);
+
+            // New Reset button for resolution
+            btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 540, Width = 150 };
+            btnResetResolution.Click += btnResetResolution_Click;
+            this.Controls.Add(btnResetResolution);
+
+            // --- Status ---
+            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 540, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
             this.Controls.Add(lblStatus);
         }
 
