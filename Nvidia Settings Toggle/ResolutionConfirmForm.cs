@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Drawing;
 using System.Windows.Forms;
 
 namespace NVCP_Toggle
@@ -14,7 +13,7 @@ namespace NVCP_Toggle
             countdownSeconds = seconds;
             InitializeComponent();
             UpdateLabel();
-            countdownTimer.Interval = 1000; // 1 second
+            countdownTimer.Interval = 1000;
             countdownTimer.Tick += CountdownTimer_Tick;
             countdownTimer.Start();
             this.FormClosing += ResolutionConfirmForm_FormClosing;
@@ -57,9 +56,9 @@ namespace NVCP_Toggle
                 this.DialogResult = DialogResult.Cancel;
         }
 
-        private Label lblCountdown = null!;
-        private Button btnKeep = null!;
-        private Button btnCancel = null!;
+        private Label lblCountdown;
+        private Button btnKeep;
+        private Button btnCancel;
 
         private void InitializeComponent()
         {
@@ -71,20 +70,20 @@ namespace NVCP_Toggle
             // lblCountdown
             // 
             this.lblCountdown.AutoSize = true;
-            this.lblCountdown.Font = new Font("Segoe UI", 10F);
-            this.lblCountdown.Location = new Point(30, 20);
+            this.lblCountdown.Font = new System.Drawing.Font("Segoe UI", 10F);
+            this.lblCountdown.Location = new System.Drawing.Point(30, 20);
             this.lblCountdown.Name = "lblCountdown";
-            this.lblCountdown.Size = new Size(240, 40);
+            this.lblCountdown.Size = new System.Drawing.Size(240, 40);
             this.lblCountdown.TabIndex = 0;
             this.lblCountdown.Text = "Keep this resolution?\r\nReverting in X seconds...";
-            this.lblCountdown.TextAlign = ContentAlignment.MiddleCenter;
+            this.lblCountdown.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // btnKeep
             // 
-            this.btnKeep.Font = new Font("Segoe UI", 9F);
-            this.btnKeep.Location = new Point(30, 80);
+            this.btnKeep.Font = new System.Drawing.Font("Segoe UI", 9F);
+            this.btnKeep.Location = new System.Drawing.Point(30, 80);
             this.btnKeep.Name = "btnKeep";
-            this.btnKeep.Size = new Size(100, 30);
+            this.btnKeep.Size = new System.Drawing.Size(100, 30);
             this.btnKeep.TabIndex = 1;
             this.btnKeep.Text = "Keep";
             this.btnKeep.UseVisualStyleBackColor = true;
@@ -92,10 +91,10 @@ namespace NVCP_Toggle
             // 
             // btnCancel
             // 
-            this.btnCancel.Font = new Font("Segoe UI", 9F);
-            this.btnCancel.Location = new Point(150, 80);
+            this.btnCancel.Font = new System.Drawing.Font("Segoe UI", 9F);
+            this.btnCancel.Location = new System.Drawing.Point(150, 80);
             this.btnCancel.Name = "btnCancel";
-            this.btnCancel.Size = new Size(100, 30);
+            this.btnCancel.Size = new System.Drawing.Size(100, 30);
             this.btnCancel.TabIndex = 2;
             this.btnCancel.Text = "Revert";
             this.btnCancel.UseVisualStyleBackColor = true;
@@ -103,7 +102,7 @@ namespace NVCP_Toggle
             // 
             // ResolutionConfirmForm
             // 
-            this.ClientSize = new Size(300, 130);
+            this.ClientSize = new System.Drawing.Size(300, 130);
             this.Controls.Add(this.lblCountdown);
             this.Controls.Add(this.btnKeep);
             this.Controls.Add(this.btnCancel);
@@ -112,12 +111,12 @@ namespace NVCP_Toggle
             this.MinimizeBox = false;
             this.StartPosition = FormStartPosition.CenterParent;
             this.Text = "Confirm Resolution";
-            this.BackColor = Color.FromArgb(45, 45, 48);
-            this.ForeColor = Color.White;
+            this.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
+            this.ForeColor = System.Drawing.Color.White;
             foreach (Control ctl in this.Controls)
             {
-                ctl.BackColor = Color.FromArgb(45, 45, 48);
-                ctl.ForeColor = Color.White;
+                ctl.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
+                ctl.ForeColor = System.Drawing.Color.White;
             }
             this.ResumeLayout(false);
             this.PerformLayout();

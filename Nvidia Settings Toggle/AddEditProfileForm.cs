@@ -11,21 +11,21 @@ namespace NVCP_Toggle
     {
         public MainForm.DisplayProfile Profile { get; private set; } = new MainForm.DisplayProfile();
 
-        private TextBox txtProfileName;
-        private TextBox txtProcessName;
-        private NumericUpDown nudVibrance;
-        private TrackBar trackBarVibrance;
-        private NumericUpDown nudHue;
-        private TrackBar trackBarHue;
-        private NumericUpDown nudBrightness;
-        private TrackBar trackBarBrightness;
-        private NumericUpDown nudContrast;
-        private TrackBar trackBarContrast;
-        private NumericUpDown nudGamma;
-        private TrackBar trackBarGamma;
-        private ComboBox cmbProfileResolutions;
-        private Button btnOK;
-        private Button btnCancel;
+        private TextBox txtProfileName = null!;
+        private TextBox txtProcessName = null!;
+        private NumericUpDown nudVibrance = null!;
+        private TrackBar trackBarVibrance = null!;
+        private NumericUpDown nudHue = null!;
+        private TrackBar trackBarHue = null!;
+        private NumericUpDown nudBrightness = null!;
+        private TrackBar trackBarBrightness = null!;
+        private NumericUpDown nudContrast = null!;
+        private TrackBar trackBarContrast = null!;
+        private NumericUpDown nudGamma = null!;
+        private TrackBar trackBarGamma = null!;
+        private ComboBox cmbProfileResolutions = null!;
+        private Button btnOK = null!;
+        private Button btnCancel = null!;
 
         // Helper class for resolution modes.
         public class ResolutionMode
@@ -220,7 +220,7 @@ namespace NVCP_Toggle
             cmbProfileResolutions.SelectedIndex = 0;
         }
 
-        private void BtnOK_Click(object sender, EventArgs e)
+        private void BtnOK_Click(object? sender, EventArgs e)
         {
             Profile.ProfileName = txtProfileName.Text;
             Profile.ProcessName = txtProcessName.Text;
@@ -255,7 +255,7 @@ namespace NVCP_Toggle
             this.MinimumSize = new Size(500, 500);
             this.MaximizeBox = true;
             int labelLeft = 20, controlLeft = 140;
-            int currentTop = 20, gap = 30;
+            int currentTop = 20, gap = 50;
 
             // Profile Name.
             FormsLabel lblName = new FormsLabel { Text = "Profile Name:", Left = labelLeft, Top = currentTop, AutoSize = true };
@@ -264,12 +264,12 @@ namespace NVCP_Toggle
             this.Controls.Add(txtProfileName);
 
             // Process Name.
-            currentTop += gap;
+            currentTop += 30;
             FormsLabel lblProcess = new FormsLabel { Text = "Process Name (without .exe):", Left = labelLeft, Top = currentTop, AutoSize = true };
             txtProcessName = new TextBox { Left = labelLeft, Top = currentTop + 20, Width = 430 };
             this.Controls.Add(lblProcess);
             this.Controls.Add(txtProcessName);
-            currentTop += 40;
+            currentTop += 60;
 
             // Vibrance.
             FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance (0–100):", Left = labelLeft, Top = currentTop, AutoSize = true };
@@ -321,11 +321,6 @@ namespace NVCP_Toggle
             cmbProfileResolutions = new ComboBox { Left = controlLeft, Top = currentTop, Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };
             this.Controls.Add(lblRes);
             this.Controls.Add(cmbProfileResolutions);
-            currentTop += gap;
-
-            // Instruction.
-            FormsLabel lblInstr = new FormsLabel { Text = "Select a resolution or 'No Change'", Left = labelLeft, Top = currentTop, AutoSize = true, ForeColor = Color.LightBlue };
-            this.Controls.Add(lblInstr);
             currentTop += gap;
 
             // OK and Cancel.

@@ -1,18 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Win32; // For registry auto-start.
-using Newtonsoft.Json;
+using Microsoft.Win32; // For registry access
 using NvAPIWrapper;
 using NvAPIWrapper.GPU;
 using WindowsDisplayAPI;
 using WindowsDisplayAPI.DisplayConfig;
+using Newtonsoft.Json;
 
 // Alias for clarity.
 using FormsLabel = System.Windows.Forms.Label;
@@ -132,43 +131,43 @@ namespace NVCP_Toggle
         #region UI Controls
 
         // Manual controls.
-        private NumericUpDown nudVibrance = null!;
-        private TrackBar trackBarVibrance = null!;
-        private NumericUpDown nudHue = null!;
-        private TrackBar trackBarHue = null!;
-        private NumericUpDown nudBrightness = null!;
-        private TrackBar trackBarBrightness = null!;
-        private NumericUpDown nudContrast = null!;
-        private TrackBar trackBarContrast = null!;
-        private NumericUpDown nudGamma = null!;
-        private TrackBar trackBarGamma = null!;
-        private Button btnApplyManual = null!;
-        private Button btnReset = null!;
+        private NumericUpDown nudVibrance;
+        private TrackBar trackBarVibrance;
+        private NumericUpDown nudHue;
+        private TrackBar trackBarHue;
+        private NumericUpDown nudBrightness;
+        private TrackBar trackBarBrightness;
+        private NumericUpDown nudContrast;
+        private TrackBar trackBarContrast;
+        private NumericUpDown nudGamma;
+        private TrackBar trackBarGamma;
+        private Button btnApplyManual;
+        private Button btnReset;
 
         // Profile management.
-        private ListBox lstProfiles = null!;
-        private Button btnAddProfile = null!;
-        private Button btnEditProfile = null!;
-        private Button btnRemoveProfile = null!;
-        private Button btnApplyProfile = null!;
-        private CheckBox chkAutoSwitch = null!;
-        private CheckBox chkAutoStart = null!;
-        private FormsLabel lblStatus = null!;
+        private ListBox lstProfiles;
+        private Button btnAddProfile;
+        private Button btnEditProfile;
+        private Button btnRemoveProfile;
+        private Button btnApplyProfile;
+        private CheckBox chkAutoSwitch;
+        private CheckBox chkAutoStart; // New auto start option.
+        private FormsLabel lblStatus;
 
         // Resolution changer.
-        private ComboBox cmbResolutions = null!;
-        private Button btnApplyResolution = null!;
-        private Button btnResetResolution = null!;
+        private ComboBox cmbResolutions;
+        private Button btnApplyResolution;
+        private Button btnResetResolution;
 
         // Tray icon.
-        private NotifyIcon trayIcon = null!;
-        private ContextMenuStrip trayMenu = null!;
-
-        // Registry key info.
-        private const string AutoStartRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string AppName = "NVCP_Toggle";
+        private NotifyIcon trayIcon;
+        private ContextMenuStrip trayMenu;
 
         #endregion
+
+        // Registry key and app name for auto start.
+        private const string AutoStartRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string AppName = "NVCP_Toggle";
 
         public MainForm()
         {
@@ -183,9 +182,9 @@ namespace NVCP_Toggle
         {
             // Allow resizing.
             this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.MinimumSize = new Size(700, 700);
+            this.MinimumSize = new System.Drawing.Size(650, 600);
 
-            // Save the current resolution as default.
+            // Save current resolution.
             DEVMODE dm = new DEVMODE();
             dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
             if (EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm))
@@ -231,6 +230,7 @@ namespace NVCP_Toggle
                 MessageBox.Show($"Error loading settings:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
+            // Set auto-start according to the setting.
             SetAutoStart(chkAutoStart.Checked);
 
             PopulateResolutions();
@@ -240,6 +240,7 @@ namespace NVCP_Toggle
             SetupSliderSync();
         }
 
+        // Sets (or removes) the auto-start registry key.
         private void SetAutoStart(bool enable)
         {
             try
@@ -254,7 +255,7 @@ namespace NVCP_Toggle
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to update auto start setting:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Failed to update auto start setting: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -296,37 +297,38 @@ namespace NVCP_Toggle
             nudGamma.ValueChanged += (s, e) => { trackBarGamma.Value = (int)(nudGamma.Value * 100); };
         }
 
+        // Apply dark theme to this form and all child controls.
         private void ApplyDarkTheme()
         {
-            this.BackColor = Color.FromArgb(45, 45, 48);
-            this.ForeColor = Color.White;
+            this.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
+            this.ForeColor = System.Drawing.Color.White;
             foreach (Control ctl in this.Controls)
                 ApplyDarkThemeRecursively(ctl);
         }
 
         private void ApplyDarkThemeRecursively(Control ctl)
         {
-            ctl.BackColor = Color.FromArgb(45, 45, 48);
-            ctl.ForeColor = Color.White;
+            ctl.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
+            ctl.ForeColor = System.Drawing.Color.White;
             if (ctl is Button btn)
             {
-                btn.BackColor = Color.FromArgb(63, 63, 70);
+                btn.BackColor = System.Drawing.Color.FromArgb(63, 63, 70);
                 btn.FlatStyle = FlatStyle.Flat;
-                btn.FlatAppearance.BorderColor = Color.FromArgb(28, 28, 28);
+                btn.FlatAppearance.BorderColor = System.Drawing.Color.FromArgb(28, 28, 28);
             }
             if (ctl is NumericUpDown nud)
             {
-                nud.BackColor = Color.FromArgb(63, 63, 70);
-                nud.ForeColor = Color.White;
+                nud.BackColor = System.Drawing.Color.FromArgb(63, 63, 70);
+                nud.ForeColor = System.Drawing.Color.White;
             }
             if (ctl is TrackBar tb)
             {
-                tb.BackColor = Color.FromArgb(45, 45, 48);
+                tb.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
             }
             if (ctl is ComboBox cb)
             {
-                cb.BackColor = Color.FromArgb(63, 63, 70);
-                cb.ForeColor = Color.White;
+                cb.BackColor = System.Drawing.Color.FromArgb(63, 63, 70);
+                cb.ForeColor = System.Drawing.Color.White;
             }
             foreach (Control child in ctl.Controls)
                 ApplyDarkThemeRecursively(child);
@@ -737,6 +739,7 @@ namespace NVCP_Toggle
                 ContextMenuStrip = trayMenu,
                 Visible = false
             };
+
             trayIcon.DoubleClick += (s, e) =>
             {
                 this.Show();
@@ -751,253 +754,88 @@ namespace NVCP_Toggle
 
         private void InitializeComponent()
         {
-            this.SuspendLayout();
-            // Main form properties.
             this.Text = "NVCP Profile Manager";
-            this.ClientSize = new Size(700, 700);
+            this.ClientSize = new System.Drawing.Size(650, 680);
+            // Make window sizable.
             this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.MinimumSize = new Size(700, 700);
+            this.MinimumSize = new System.Drawing.Size(650, 680);
             this.MaximizeBox = true;
-            this.BackColor = Color.FromArgb(45, 45, 48);
-            this.ForeColor = Color.White;
-
-            // Main TableLayoutPanel.
-            TableLayoutPanel mainPanel = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                RowCount = 4,
-                ColumnCount = 1,
-                Padding = new Padding(10),
-                AutoScroll = true
-            };
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            this.Controls.Add(mainPanel);
-
-            // --- Manual Settings Group ---
-            GroupBox grpManual = new GroupBox
-            {
-                Text = "Manual Settings",
-                Dock = DockStyle.Top,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold),
-                BackColor = Color.FromArgb(45, 45, 48),
-                ForeColor = Color.White,
-                Padding = new Padding(10)
-            };
-            TableLayoutPanel tblManual = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
-                AutoSize = true,
-                Padding = new Padding(5)
-            };
-            tblManual.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            tblManual.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-            tblManual.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-
-            // Manual settings controls.
-            var lblManVibrance = CreateLabel("Vibrance (0–100):");
-            nudVibrance = CreateNumericUpDown(0, 100, DefaultVibrance);
-            trackBarVibrance = CreateTrackBar(0, 100, DefaultVibrance);
-            var lblManHue = CreateLabel("Hue (–180 to 180):");
-            nudHue = CreateNumericUpDown(-180, 180, DefaultHue);
-            trackBarHue = CreateTrackBar(-180, 180, DefaultHue);
-            var lblManBrightness = CreateLabel("Brightness (0.0–2.0):");
-            nudBrightness = CreateNumericUpDown(0, 2, (int)(DefaultBrightness * 100));
-            trackBarBrightness = CreateTrackBar(0, 200, (int)(DefaultBrightness * 100));
-            var lblManContrast = CreateLabel("Contrast (0.0–2.0):");
-            nudContrast = CreateNumericUpDown(0, 2, (int)(DefaultContrast * 100));
-            trackBarContrast = CreateTrackBar(0, 200, (int)(DefaultContrast * 100));
-            var lblManGamma = CreateLabel("Gamma (0.0–3.0):");
-            nudGamma = CreateNumericUpDown(0, 3, (int)(DefaultGamma * 100));
-            trackBarGamma = CreateTrackBar(0, 300, (int)(DefaultGamma * 100));
-
-            tblManual.Controls.Add(lblManVibrance, 0, 0);
-            tblManual.Controls.Add(nudVibrance, 1, 0);
-            tblManual.Controls.Add(trackBarVibrance, 2, 0);
-
-            tblManual.Controls.Add(lblManHue, 0, 1);
-            tblManual.Controls.Add(nudHue, 1, 1);
-            tblManual.Controls.Add(trackBarHue, 2, 1);
-
-            tblManual.Controls.Add(lblManBrightness, 0, 2);
-            tblManual.Controls.Add(nudBrightness, 1, 2);
-            tblManual.Controls.Add(trackBarBrightness, 2, 2);
-
-            tblManual.Controls.Add(lblManContrast, 0, 3);
-            tblManual.Controls.Add(nudContrast, 1, 3);
-            tblManual.Controls.Add(trackBarContrast, 2, 3);
-
-            tblManual.Controls.Add(lblManGamma, 0, 4);
-            tblManual.Controls.Add(nudGamma, 1, 4);
-            tblManual.Controls.Add(trackBarGamma, 2, 4);
-
-            FlowLayoutPanel pnlManualButtons = new FlowLayoutPanel
-            {
-                FlowDirection = FlowDirection.LeftToRight,
-                Dock = DockStyle.Fill,
-                AutoSize = true
-            };
-            btnApplyManual = CreateButton("Apply Manual Settings");
-            btnReset = CreateButton("Reset to Defaults");
-            pnlManualButtons.Controls.Add(btnApplyManual);
-            pnlManualButtons.Controls.Add(btnReset);
-            tblManual.Controls.Add(pnlManualButtons, 0, 5);
-            tblManual.SetColumnSpan(pnlManualButtons, 3);
-            grpManual.Controls.Add(tblManual);
-            mainPanel.Controls.Add(grpManual);
-
-            // --- Profile Management Group ---
-            GroupBox grpProfiles = new GroupBox
-            {
-                Text = "Profile Management",
-                Dock = DockStyle.Top,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold),
-                BackColor = Color.FromArgb(45, 45, 48),
-                ForeColor = Color.White,
-                Padding = new Padding(10)
-            };
-            TableLayoutPanel tblProfiles = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                AutoSize = true,
-                Padding = new Padding(5)
-            };
-            tblProfiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
-            tblProfiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            lstProfiles = new ListBox { Dock = DockStyle.Fill, Height = 100 };
-            tblProfiles.Controls.Add(lstProfiles, 0, 0);
-            FlowLayoutPanel pnlProfileButtons = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Fill, AutoSize = true };
-            btnAddProfile = CreateButton("Add Profile");
-            btnEditProfile = CreateButton("Edit Profile");
-            btnRemoveProfile = CreateButton("Remove Profile");
-            btnApplyProfile = CreateButton("Apply Profile");
-            pnlProfileButtons.Controls.Add(btnAddProfile);
-            pnlProfileButtons.Controls.Add(btnEditProfile);
-            pnlProfileButtons.Controls.Add(btnRemoveProfile);
-            pnlProfileButtons.Controls.Add(btnApplyProfile);
-            tblProfiles.Controls.Add(pnlProfileButtons, 1, 0);
-            FlowLayoutPanel pnlProfileOptions = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Dock = DockStyle.Fill, AutoSize = true };
-            chkAutoSwitch = new CheckBox { Text = "Enable Auto Profile Switching", AutoSize = true };
-            chkAutoStart = new CheckBox { Text = "Run at Startup", AutoSize = true };
-            pnlProfileOptions.Controls.Add(chkAutoSwitch);
-            pnlProfileOptions.Controls.Add(chkAutoStart);
-            tblProfiles.Controls.Add(pnlProfileOptions, 0, 1);
-            tblProfiles.SetColumnSpan(pnlProfileOptions, 2);
-            grpProfiles.Controls.Add(tblProfiles);
-            mainPanel.Controls.Add(grpProfiles);
-
-            // --- Resolution Changer Group ---
-            GroupBox grpResolution = new GroupBox
-            {
-                Text = "Resolution Changer",
-                Dock = DockStyle.Top,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold),
-                BackColor = Color.FromArgb(45, 45, 48),
-                ForeColor = Color.White,
-                Padding = new Padding(10)
-            };
-            TableLayoutPanel tblResolution = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                AutoSize = true,
-                Padding = new Padding(5)
-            };
-            tblResolution.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
-            tblResolution.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            cmbResolutions = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            tblResolution.Controls.Add(cmbResolutions, 0, 0);
-            FlowLayoutPanel pnlResButtons = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Fill, AutoSize = true };
-            btnApplyResolution = CreateButton("Apply Resolution");
-            btnResetResolution = CreateButton("Reset Resolution");
-            pnlResButtons.Controls.Add(btnApplyResolution);
-            pnlResButtons.Controls.Add(btnResetResolution);
-            tblResolution.Controls.Add(pnlResButtons, 1, 0);
-            grpResolution.Controls.Add(tblResolution);
-            mainPanel.Controls.Add(grpResolution);
-
-            // --- Status Label ---
-            lblStatus = new Label
-            {
-                Text = "Status",
-                Dock = DockStyle.Fill,
-                Height = 50,
-                BorderStyle = BorderStyle.FixedSingle,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(5)
-            };
-            mainPanel.Controls.Add(lblStatus);
-
-            // Wire up events.
+            // --- Manual Controls ---
+            FormsLabel lblManual = new FormsLabel { Text = "Manual Settings", Left = 20, Top = 20, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            this.Controls.Add(lblManual);
+            FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance (0–100):", Left = 20, Top = 60, AutoSize = true };
+            nudVibrance = new NumericUpDown { Left = 160, Top = 60, Minimum = 0, Maximum = 100, Width = 80 };
+            this.Controls.Add(lblVibrance);
+            this.Controls.Add(nudVibrance);
+            trackBarVibrance = new TrackBar { Left = 250, Top = 60, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarVibrance);
+            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = 20, Top = 100, AutoSize = true };
+            nudHue = new NumericUpDown { Left = 160, Top = 100, Minimum = -180, Maximum = 180, Width = 80 };
+            this.Controls.Add(lblHue);
+            this.Controls.Add(nudHue);
+            trackBarHue = new TrackBar { Left = 250, Top = 100, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarHue);
+            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = 20, Top = 140, AutoSize = true };
+            nudBrightness = new NumericUpDown { Left = 160, Top = 140, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            this.Controls.Add(lblBrightness);
+            this.Controls.Add(nudBrightness);
+            trackBarBrightness = new TrackBar { Left = 250, Top = 140, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarBrightness);
+            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = 20, Top = 180, AutoSize = true };
+            nudContrast = new NumericUpDown { Left = 160, Top = 180, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            this.Controls.Add(lblContrast);
+            this.Controls.Add(nudContrast);
+            trackBarContrast = new TrackBar { Left = 250, Top = 180, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarContrast);
+            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = 20, Top = 220, AutoSize = true };
+            nudGamma = new NumericUpDown { Left = 160, Top = 220, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            this.Controls.Add(lblGamma);
+            this.Controls.Add(nudGamma);
+            trackBarGamma = new TrackBar { Left = 250, Top = 220, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarGamma);
+            btnApplyManual = new Button { Text = "Apply Manual Settings", Left = 20, Top = 280, Width = 200 };
             btnApplyManual.Click += btnApplyManual_Click;
+            this.Controls.Add(btnApplyManual);
+            btnReset = new Button { Text = "Reset to Defaults", Left = 240, Top = 280, Width = 150 };
             btnReset.Click += btnReset_Click;
+            this.Controls.Add(btnReset);
+            // --- Profile Management Controls ---
+            FormsLabel lblProfiles = new FormsLabel { Text = "Profiles", Left = 20, Top = 310, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            this.Controls.Add(lblProfiles);
+            lstProfiles = new ListBox { Left = 20, Top = 340, Width = 350, Height = 100 };
+            this.Controls.Add(lstProfiles);
+            btnAddProfile = new Button { Text = "Add Profile", Left = 380, Top = 340, Width = 150 };
             btnAddProfile.Click += btnAddProfile_Click;
+            this.Controls.Add(btnAddProfile);
+            btnEditProfile = new Button { Text = "Edit Profile", Left = 380, Top = 380, Width = 150 };
             btnEditProfile.Click += btnEditProfile_Click;
+            this.Controls.Add(btnEditProfile);
+            btnRemoveProfile = new Button { Text = "Remove Profile", Left = 380, Top = 420, Width = 150 };
             btnRemoveProfile.Click += btnRemoveProfile_Click;
+            this.Controls.Add(btnRemoveProfile);
+            btnApplyProfile = new Button { Text = "Apply Profile", Left = 380, Top = 460, Width = 150 };
             btnApplyProfile.Click += btnApplyProfile_Click;
+            this.Controls.Add(btnApplyProfile);
+            chkAutoSwitch = new CheckBox { Text = "Enable Auto Profile Switching", Left = 20, Top = 460, AutoSize = true };
             chkAutoSwitch.CheckedChanged += chkAutoSwitch_CheckedChanged;
+            this.Controls.Add(chkAutoSwitch);
+            chkAutoStart = new CheckBox { Text = "Run at Startup", Left = 20, Top = 490, AutoSize = true };
             chkAutoStart.CheckedChanged += chkAutoStart_CheckedChanged;
+            this.Controls.Add(chkAutoStart);
+            // --- Resolution Changer Controls ---
+            FormsLabel lblResolution = new FormsLabel { Text = "Resolution Changer", Left = 20, Top = 530, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            this.Controls.Add(lblResolution);
+            cmbResolutions = new ComboBox { Left = 20, Top = 560, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList };
+            this.Controls.Add(cmbResolutions);
+            btnApplyResolution = new Button { Text = "Apply Resolution", Left = 380, Top = 560, Width = 150 };
             btnApplyResolution.Click += btnApplyResolution_Click;
+            this.Controls.Add(btnApplyResolution);
+            btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 600, Width = 150 };
             btnResetResolution.Click += btnResetResolution_Click;
-
-            this.ResumeLayout(false);
-        }
-
-        // Helper methods for creating controls.
-        private Label CreateLabel(string text)
-        {
-            return new Label
-            {
-                Text = text,
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9)
-            };
-        }
-
-        private NumericUpDown CreateNumericUpDown(decimal min, decimal max, int initial)
-        {
-            return new NumericUpDown
-            {
-                Minimum = min,
-                Maximum = max,
-                Value = initial,
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(63, 63, 70),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9)
-            };
-        }
-
-        private TrackBar CreateTrackBar(int min, int max, int initial)
-        {
-            return new TrackBar
-            {
-                Minimum = min,
-                Maximum = max,
-                Value = initial,
-                Dock = DockStyle.Fill,
-                TickStyle = TickStyle.None,
-                BackColor = Color.FromArgb(45, 45, 48)
-            };
-        }
-
-        private Button CreateButton(string text)
-        {
-            return new Button
-            {
-                Text = text,
-                AutoSize = true,
-                BackColor = Color.FromArgb(63, 63, 70),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Margin = new Padding(3)
-            };
+            this.Controls.Add(btnResetResolution);
+            // --- Status ---
+            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 600, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
+            this.Controls.Add(lblStatus);
         }
 
         #endregion
