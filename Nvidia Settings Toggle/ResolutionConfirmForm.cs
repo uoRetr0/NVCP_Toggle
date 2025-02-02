@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace NVCP_Toggle
@@ -8,7 +9,6 @@ namespace NVCP_Toggle
         private int countdownSeconds;
         private System.Windows.Forms.Timer countdownTimer = new System.Windows.Forms.Timer();
 
-
         public ResolutionConfirmForm(int seconds)
         {
             countdownSeconds = seconds;
@@ -17,6 +17,7 @@ namespace NVCP_Toggle
             countdownTimer.Interval = 1000; // 1 second
             countdownTimer.Tick += CountdownTimer_Tick;
             countdownTimer.Start();
+            this.FormClosing += ResolutionConfirmForm_FormClosing;
         }
 
         private void CountdownTimer_Tick(object sender, EventArgs e)
@@ -33,7 +34,7 @@ namespace NVCP_Toggle
 
         private void UpdateLabel()
         {
-            lblCountdown.Text = $"Do you want to keep this resolution?\nReverting in {countdownSeconds} seconds...";
+            lblCountdown.Text = $"Keep this resolution?\nReverting in {countdownSeconds} seconds...";
         }
 
         private void btnKeep_Click(object sender, EventArgs e)
@@ -50,9 +51,15 @@ namespace NVCP_Toggle
             this.Close();
         }
 
-        private Label lblCountdown;
-        private Button btnKeep;
-        private Button btnCancel;
+        private void ResolutionConfirmForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (this.DialogResult != DialogResult.OK)
+                this.DialogResult = DialogResult.Cancel;
+        }
+
+        private Label lblCountdown = null!;
+        private Button btnKeep = null!;
+        private Button btnCancel = null!;
 
         private void InitializeComponent()
         {
@@ -64,17 +71,20 @@ namespace NVCP_Toggle
             // lblCountdown
             // 
             this.lblCountdown.AutoSize = true;
-            this.lblCountdown.Location = new System.Drawing.Point(30, 20);
+            this.lblCountdown.Font = new Font("Segoe UI", 10F);
+            this.lblCountdown.Location = new Point(30, 20);
             this.lblCountdown.Name = "lblCountdown";
-            this.lblCountdown.Size = new System.Drawing.Size(250, 30);
+            this.lblCountdown.Size = new Size(240, 40);
             this.lblCountdown.TabIndex = 0;
-            this.lblCountdown.Text = "Do you want to keep this resolution?\r\nReverting in X seconds...";
+            this.lblCountdown.Text = "Keep this resolution?\r\nReverting in X seconds...";
+            this.lblCountdown.TextAlign = ContentAlignment.MiddleCenter;
             // 
             // btnKeep
             // 
-            this.btnKeep.Location = new System.Drawing.Point(30, 70);
+            this.btnKeep.Font = new Font("Segoe UI", 9F);
+            this.btnKeep.Location = new Point(30, 80);
             this.btnKeep.Name = "btnKeep";
-            this.btnKeep.Size = new System.Drawing.Size(100, 30);
+            this.btnKeep.Size = new Size(100, 30);
             this.btnKeep.TabIndex = 1;
             this.btnKeep.Text = "Keep";
             this.btnKeep.UseVisualStyleBackColor = true;
@@ -82,9 +92,10 @@ namespace NVCP_Toggle
             // 
             // btnCancel
             // 
-            this.btnCancel.Location = new System.Drawing.Point(150, 70);
+            this.btnCancel.Font = new Font("Segoe UI", 9F);
+            this.btnCancel.Location = new Point(150, 80);
             this.btnCancel.Name = "btnCancel";
-            this.btnCancel.Size = new System.Drawing.Size(100, 30);
+            this.btnCancel.Size = new Size(100, 30);
             this.btnCancel.TabIndex = 2;
             this.btnCancel.Text = "Revert";
             this.btnCancel.UseVisualStyleBackColor = true;
@@ -92,16 +103,22 @@ namespace NVCP_Toggle
             // 
             // ResolutionConfirmForm
             // 
-            this.ClientSize = new System.Drawing.Size(300, 120);
+            this.ClientSize = new Size(300, 130);
             this.Controls.Add(this.lblCountdown);
             this.Controls.Add(this.btnKeep);
             this.Controls.Add(this.btnCancel);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
-            this.Name = "ResolutionConfirmForm";
             this.StartPosition = FormStartPosition.CenterParent;
             this.Text = "Confirm Resolution";
+            this.BackColor = Color.FromArgb(45, 45, 48);
+            this.ForeColor = Color.White;
+            foreach (Control ctl in this.Controls)
+            {
+                ctl.BackColor = Color.FromArgb(45, 45, 48);
+                ctl.ForeColor = Color.White;
+            }
             this.ResumeLayout(false);
             this.PerformLayout();
         }

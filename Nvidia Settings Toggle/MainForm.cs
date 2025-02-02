@@ -1,18 +1,20 @@
 ﻿using System;
-using System.IO;
-using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Win32; // For registry auto-start.
+using Newtonsoft.Json;
 using NvAPIWrapper;
 using NvAPIWrapper.GPU;
 using WindowsDisplayAPI;
 using WindowsDisplayAPI.DisplayConfig;
-using Newtonsoft.Json;
 
-// Alias to avoid ambiguity with Reflection.Emit.Label
+// Alias for clarity.
 using FormsLabel = System.Windows.Forms.Label;
 
 namespace NVCP_Toggle
@@ -35,7 +37,6 @@ namespace NVCP_Toggle
 
         #region Profile Management Fields
 
-        // Extended Profile definition (new resolution properties added)
         public class DisplayProfile
         {
             public string ProfileName { get; set; } = "";
@@ -45,7 +46,7 @@ namespace NVCP_Toggle
             public float Brightness { get; set; }
             public float Contrast { get; set; }
             public float Gamma { get; set; }
-            // New resolution settings; if 0 then resolution change is not applied.
+            // If 0 then no resolution change is applied.
             public int ResolutionWidth { get; set; }
             public int ResolutionHeight { get; set; }
             public int ResolutionFrequency { get; set; }
@@ -55,7 +56,6 @@ namespace NVCP_Toggle
         private List<DisplayProfile> profiles = new List<DisplayProfile>();
         private DisplayProfile? activeProfile = null;
         private bool isMonitoring = false;
-        // Use Windows Forms Timer explicitly.
         private System.Windows.Forms.Timer profileCheckTimer = new System.Windows.Forms.Timer();
 
         #endregion
@@ -100,12 +100,10 @@ namespace NVCP_Toggle
         }
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        public static extern bool EnumDisplaySettings(
-            string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
+        public static extern bool EnumDisplaySettings(string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        public static extern int ChangeDisplaySettingsEx(
-            string lpszDeviceName, ref DEVMODE lpDevMode, IntPtr hwnd, uint dwflags, IntPtr lParam);
+        public static extern int ChangeDisplaySettingsEx(string lpszDeviceName, ref DEVMODE lpDevMode, IntPtr hwnd, uint dwflags, IntPtr lParam);
 
         const int ENUM_CURRENT_SETTINGS = -1;
         const int CDS_UPDATEREGISTRY = 0x00000001;
@@ -113,25 +111,19 @@ namespace NVCP_Toggle
         const int DISP_CHANGE_SUCCESSFUL = 0;
         const int DISP_CHANGE_RESTART = 1;
 
-        // Helper method to change resolution given parameters.
-        // Returns the result code.
         private int ChangeResolution(int width, int height, int frequency, int bpp)
         {
             DEVMODE dm = new DEVMODE();
             dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
-
             dm.dmPelsWidth = width;
             dm.dmPelsHeight = height;
             dm.dmDisplayFrequency = frequency;
             dm.dmBitsPerPel = bpp;
-            // dmFields: DM_PELSWIDTH (0x80000) | DM_PELSHEIGHT (0x100000) | DM_DISPLAYFREQUENCY (0x400000)
-            dm.dmFields = 0x80000 | 0x100000 | 0x400000;
+            dm.dmFields = 0x80000 | 0x100000 | 0x400000; // DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY
 
             int ret = ChangeDisplaySettingsEx(null, ref dm, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
             if (ret == DISP_CHANGE_SUCCESSFUL)
-            {
                 ret = ChangeDisplaySettingsEx(null, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
-            }
             return ret;
         }
 
@@ -139,32 +131,42 @@ namespace NVCP_Toggle
 
         #region UI Controls
 
-        // Manual adjustment controls
-        private NumericUpDown nudVibrance;
-        private NumericUpDown nudHue;
-        private NumericUpDown nudBrightness;
-        private NumericUpDown nudContrast;
-        private NumericUpDown nudGamma;
-        private Button btnApplyManual;
-        private Button btnReset;
+        // Manual controls.
+        private NumericUpDown nudVibrance = null!;
+        private TrackBar trackBarVibrance = null!;
+        private NumericUpDown nudHue = null!;
+        private TrackBar trackBarHue = null!;
+        private NumericUpDown nudBrightness = null!;
+        private TrackBar trackBarBrightness = null!;
+        private NumericUpDown nudContrast = null!;
+        private TrackBar trackBarContrast = null!;
+        private NumericUpDown nudGamma = null!;
+        private TrackBar trackBarGamma = null!;
+        private Button btnApplyManual = null!;
+        private Button btnReset = null!;
 
-        // Profile management controls
-        private ListBox lstProfiles;
-        private Button btnAddProfile;
-        private Button btnEditProfile;
-        private Button btnRemoveProfile;
-        private Button btnApplyProfile;
-        private CheckBox chkAutoSwitch;
-        private FormsLabel lblStatus;
+        // Profile management.
+        private ListBox lstProfiles = null!;
+        private Button btnAddProfile = null!;
+        private Button btnEditProfile = null!;
+        private Button btnRemoveProfile = null!;
+        private Button btnApplyProfile = null!;
+        private CheckBox chkAutoSwitch = null!;
+        private CheckBox chkAutoStart = null!;
+        private FormsLabel lblStatus = null!;
 
-        // Resolution changer controls
-        private ComboBox cmbResolutions;
-        private Button btnApplyResolution;
-        private Button btnResetResolution;  // Reset button for manual resolution change
+        // Resolution changer.
+        private ComboBox cmbResolutions = null!;
+        private Button btnApplyResolution = null!;
+        private Button btnResetResolution = null!;
 
-        // NotifyIcon for running in background.
-        private NotifyIcon trayIcon;
-        private ContextMenuStrip trayMenu;
+        // Tray icon.
+        private NotifyIcon trayIcon = null!;
+        private ContextMenuStrip trayMenu = null!;
+
+        // Registry key info.
+        private const string AutoStartRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string AppName = "NVCP_Toggle";
 
         #endregion
 
@@ -172,7 +174,6 @@ namespace NVCP_Toggle
         {
             InitializeComponent();
             Load += MainForm_Load;
-            // Handle minimize event for background run.
             this.Resize += MainForm_Resize;
         }
 
@@ -180,7 +181,11 @@ namespace NVCP_Toggle
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            // Save the default resolution using ENUM_CURRENT_SETTINGS.
+            // Allow resizing.
+            this.FormBorderStyle = FormBorderStyle.Sizable;
+            this.MinimumSize = new Size(700, 700);
+
+            // Save the current resolution as default.
             DEVMODE dm = new DEVMODE();
             dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
             if (EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm))
@@ -191,27 +196,21 @@ namespace NVCP_Toggle
                 defaultBpp = dm.dmBitsPerPel;
             }
 
-            // Initialize NVIDIA API
-            try
-            {
-                NVIDIA.Initialize();
-            }
+            // Initialize NVIDIA API.
+            try { NVIDIA.Initialize(); }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to initialize NVIDIA API: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Failed to initialize NVIDIA API:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnApplyManual.Enabled = false;
                 return;
             }
 
-            // Load configuration and profiles
             LoadProfiles();
             UpdateProfileList();
 
-            // Configure auto profile timer (fires every 5000 ms)
             profileCheckTimer.Interval = 5000;
             profileCheckTimer.Tick += (s, ev) => { CheckRunningProcesses(); };
 
-            // Load manual settings and autoSwitch from appSettings.json (if exists)
             try
             {
                 var config = new ConfigurationBuilder()
@@ -225,20 +224,112 @@ namespace NVCP_Toggle
                 nudContrast.Value = (decimal)config.GetValue<float>("contrast", DefaultContrast);
                 nudGamma.Value = (decimal)config.GetValue<float>("gamma", DefaultGamma);
                 chkAutoSwitch.Checked = config.GetValue<bool>("autoSwitch", false);
+                chkAutoStart.Checked = config.GetValue<bool>("autoStart", false);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error loading manual settings: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error loading settings:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
-            // Populate available resolutions for manual change.
+            SetAutoStart(chkAutoStart.Checked);
+
             PopulateResolutions();
-
-            // Setup tray icon for background running.
             SetupTrayIcon();
-
-            // Update status display
+            ApplyDarkTheme();
             UpdateStatusDisplay();
+            SetupSliderSync();
+        }
+
+        private void SetAutoStart(bool enable)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, true))
+                {
+                    if (enable)
+                        key.SetValue(AppName, Application.ExecutablePath);
+                    else
+                        key.DeleteValue(AppName, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to update auto start setting:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void SetupSliderSync()
+        {
+            // Vibrance.
+            trackBarVibrance.Minimum = 0;
+            trackBarVibrance.Maximum = 100;
+            trackBarVibrance.Value = (int)nudVibrance.Value;
+            trackBarVibrance.Scroll += (s, e) => { nudVibrance.Value = trackBarVibrance.Value; };
+            nudVibrance.ValueChanged += (s, e) => { trackBarVibrance.Value = (int)nudVibrance.Value; };
+
+            // Hue.
+            trackBarHue.Minimum = -180;
+            trackBarHue.Maximum = 180;
+            trackBarHue.Value = (int)nudHue.Value;
+            trackBarHue.Scroll += (s, e) => { nudHue.Value = trackBarHue.Value; };
+            nudHue.ValueChanged += (s, e) => { trackBarHue.Value = (int)nudHue.Value; };
+
+            // Brightness.
+            trackBarBrightness.Minimum = 0;
+            trackBarBrightness.Maximum = 200;
+            trackBarBrightness.Value = (int)(nudBrightness.Value * 100);
+            trackBarBrightness.Scroll += (s, e) => { nudBrightness.Value = (decimal)trackBarBrightness.Value / 100; };
+            nudBrightness.ValueChanged += (s, e) => { trackBarBrightness.Value = (int)(nudBrightness.Value * 100); };
+
+            // Contrast.
+            trackBarContrast.Minimum = 0;
+            trackBarContrast.Maximum = 200;
+            trackBarContrast.Value = (int)(nudContrast.Value * 100);
+            trackBarContrast.Scroll += (s, e) => { nudContrast.Value = (decimal)trackBarContrast.Value / 100; };
+            nudContrast.ValueChanged += (s, e) => { trackBarContrast.Value = (int)(nudContrast.Value * 100); };
+
+            // Gamma.
+            trackBarGamma.Minimum = 0;
+            trackBarGamma.Maximum = 300;
+            trackBarGamma.Value = (int)(nudGamma.Value * 100);
+            trackBarGamma.Scroll += (s, e) => { nudGamma.Value = (decimal)trackBarGamma.Value / 100; };
+            nudGamma.ValueChanged += (s, e) => { trackBarGamma.Value = (int)(nudGamma.Value * 100); };
+        }
+
+        private void ApplyDarkTheme()
+        {
+            this.BackColor = Color.FromArgb(45, 45, 48);
+            this.ForeColor = Color.White;
+            foreach (Control ctl in this.Controls)
+                ApplyDarkThemeRecursively(ctl);
+        }
+
+        private void ApplyDarkThemeRecursively(Control ctl)
+        {
+            ctl.BackColor = Color.FromArgb(45, 45, 48);
+            ctl.ForeColor = Color.White;
+            if (ctl is Button btn)
+            {
+                btn.BackColor = Color.FromArgb(63, 63, 70);
+                btn.FlatStyle = FlatStyle.Flat;
+                btn.FlatAppearance.BorderColor = Color.FromArgb(28, 28, 28);
+            }
+            if (ctl is NumericUpDown nud)
+            {
+                nud.BackColor = Color.FromArgb(63, 63, 70);
+                nud.ForeColor = Color.White;
+            }
+            if (ctl is TrackBar tb)
+            {
+                tb.BackColor = Color.FromArgb(45, 45, 48);
+            }
+            if (ctl is ComboBox cb)
+            {
+                cb.BackColor = Color.FromArgb(63, 63, 70);
+                cb.ForeColor = Color.White;
+            }
+            foreach (Control child in ctl.Controls)
+                ApplyDarkThemeRecursively(child);
         }
 
         #endregion
@@ -247,13 +338,7 @@ namespace NVCP_Toggle
 
         private void btnApplyManual_Click(object sender, EventArgs e)
         {
-            // Apply manual settings
-            int vibrance = (int)nudVibrance.Value;
-            int hue = (int)nudHue.Value;
-            float brightness = (float)nudBrightness.Value;
-            float contrast = (float)nudContrast.Value;
-            float gamma = (float)nudGamma.Value;
-            ApplyManualSettings(vibrance, hue, brightness, contrast, gamma);
+            ApplyManualSettings((int)nudVibrance.Value, (int)nudHue.Value, (float)nudBrightness.Value, (float)nudContrast.Value, (float)nudGamma.Value);
             activeProfile = null;
             UpdateStatusDisplay();
             SaveManualSettings();
@@ -313,7 +398,6 @@ namespace NVCP_Toggle
             if (lstProfiles.SelectedIndex >= 0)
             {
                 var selectedProfile = profiles[lstProfiles.SelectedIndex];
-                // If the selected profile is already active, revert to default.
                 if (activeProfile == selectedProfile)
                 {
                     ResetToDefaults();
@@ -342,22 +426,24 @@ namespace NVCP_Toggle
             SaveManualSettings();
         }
 
+        private void chkAutoStart_CheckedChanged(object sender, EventArgs e)
+        {
+            SetAutoStart(chkAutoStart.Checked);
+            SaveManualSettings();
+        }
+
         private void btnApplyResolution_Click(object sender, EventArgs e)
         {
             if (cmbResolutions.SelectedItem is ResolutionMode mode)
             {
-                // Save the current resolution (as backup) before applying new one.
                 int backupWidth = defaultWidth, backupHeight = defaultHeight, backupFreq = defaultFrequency, backupBpp = defaultBpp;
-                // Attempt to change resolution.
                 if (ChangeResolution(mode.Width, mode.Height, mode.Frequency, mode.BitsPerPel) == DISP_CHANGE_SUCCESSFUL)
                 {
-                    // Show confirmation dialog.
                     using (var confirmDlg = new ResolutionConfirmForm(15))
                     {
                         if (confirmDlg.ShowDialog() == DialogResult.OK)
                         {
                             MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            // Update default to new resolution.
                             defaultWidth = mode.Width;
                             defaultHeight = mode.Height;
                             defaultFrequency = mode.Frequency;
@@ -365,33 +451,24 @@ namespace NVCP_Toggle
                         }
                         else
                         {
-                            // Revert resolution if not confirmed.
                             ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
-                            MessageBox.Show("Resolution change canceled. Reverted to previous resolution.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            MessageBox.Show("Resolution change canceled. Reverted.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         }
                     }
                 }
                 else
-                {
                     MessageBox.Show("Failed to change resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
             }
         }
 
-        // Reset manual resolution change back to default.
         private void btnResetResolution_Click(object sender, EventArgs e)
         {
             if (ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp) == DISP_CHANGE_SUCCESSFUL)
-            {
                 MessageBox.Show("Resolution reset to default.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
             else
-            {
                 MessageBox.Show("Failed to reset resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
         }
 
-        // Minimize to tray when form is minimized.
         private void MainForm_Resize(object sender, EventArgs e)
         {
             if (this.WindowState == FormWindowState.Minimized)
@@ -426,11 +503,9 @@ namespace NVCP_Toggle
                 nvDisplay.DigitalVibranceControl.CurrentLevel = profile.Vibrance;
                 nvDisplay.HUEControl.CurrentAngle = profile.Hue;
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(profile.Brightness, profile.Contrast, profile.Gamma);
-                // If resolution fields are nonzero, change resolution with confirmation.
                 if (profile.ResolutionWidth != 0 && profile.ResolutionHeight != 0 &&
                     profile.ResolutionFrequency != 0 && profile.ResolutionBpp != 0)
                 {
-                    // Backup current resolution.
                     int backupWidth = defaultWidth, backupHeight = defaultHeight, backupFreq = defaultFrequency, backupBpp = defaultBpp;
                     if (ChangeResolution(profile.ResolutionWidth, profile.ResolutionHeight, profile.ResolutionFrequency, profile.ResolutionBpp) == DISP_CHANGE_SUCCESSFUL)
                     {
@@ -447,7 +522,7 @@ namespace NVCP_Toggle
                             else
                             {
                                 ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
-                                MessageBox.Show("Resolution change canceled. Reverted to previous resolution.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                MessageBox.Show("Resolution change canceled. Reverted.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             }
                         }
                     }
@@ -464,7 +539,6 @@ namespace NVCP_Toggle
                 nvDisplay.DigitalVibranceControl.CurrentLevel = DefaultVibrance;
                 nvDisplay.HUEControl.CurrentAngle = DefaultHue;
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness, DefaultContrast, DefaultGamma);
-                // Revert resolution to saved default.
                 ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp);
             }
         }
@@ -480,9 +554,7 @@ namespace NVCP_Toggle
                     {
                         activeProfile = profile;
                         ApplyProfile(profile);
-                        this.Invoke((MethodInvoker)delegate {
-                            UpdateStatusDisplay();
-                        });
+                        this.Invoke((MethodInvoker)(() => UpdateStatusDisplay()));
                     }
                     return;
                 }
@@ -491,9 +563,7 @@ namespace NVCP_Toggle
             {
                 activeProfile = null;
                 ResetToDefaults();
-                this.Invoke((MethodInvoker)delegate {
-                    UpdateStatusDisplay();
-                });
+                this.Invoke((MethodInvoker)(() => UpdateStatusDisplay()));
             }
         }
 
@@ -505,7 +575,6 @@ namespace NVCP_Toggle
         {
             var nvDisplay = GetNvidiaMainDisplay();
             var windowsDisplay = GetWindowsDisplay();
-
             string status;
             if (nvDisplay == null || windowsDisplay == null)
                 status = "No display detected!";
@@ -527,16 +596,14 @@ namespace NVCP_Toggle
             lstProfiles.Items.Clear();
             foreach (var profile in profiles)
             {
-                string resInfo = (profile.ResolutionWidth != 0)
-                    ? $"{profile.ResolutionWidth}x{profile.ResolutionHeight}"
-                    : "Unchanged";
+                string resInfo = (profile.ResolutionWidth != 0) ? $"{profile.ResolutionWidth}x{profile.ResolutionHeight}" : "Unchanged";
                 lstProfiles.Items.Add($"{profile.ProfileName} ({profile.ProcessName}.exe) - Res: {resInfo}");
             }
         }
 
         #endregion
 
-        #region Profile Persistence and Manual Settings Saving
+        #region Profile Persistence and Settings Saving
 
         private void LoadProfiles()
         {
@@ -546,9 +613,7 @@ namespace NVCP_Toggle
                 var json = File.ReadAllText(profilePath);
                 var data = JsonConvert.DeserializeObject<Dictionary<string, List<DisplayProfile>>>(json);
                 if (data != null && data.ContainsKey("Profiles"))
-                {
                     profiles = data["Profiles"];
-                }
             }
         }
 
@@ -567,7 +632,8 @@ namespace NVCP_Toggle
                 brightness = (float)nudBrightness.Value,
                 contrast = (float)nudContrast.Value,
                 gamma = (float)nudGamma.Value,
-                autoSwitch = chkAutoSwitch.Checked
+                autoSwitch = chkAutoSwitch.Checked,
+                autoStart = chkAutoStart.Checked
             };
             string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
             File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "appSettings.json"), json);
@@ -606,18 +672,13 @@ namespace NVCP_Toggle
 
         #region Resolution Changer Methods
 
-        // Helper class to represent a resolution mode.
         private class ResolutionMode
         {
             public int Width { get; set; }
             public int Height { get; set; }
             public int Frequency { get; set; }
             public int BitsPerPel { get; set; }
-
-            public override string ToString()
-            {
-                return $"{Width} x {Height}, {Frequency} Hz, {BitsPerPel} bpp";
-            }
+            public override string ToString() => $"{Width} x {Height}, {Frequency} Hz, {BitsPerPel} bpp";
         }
 
         private List<ResolutionMode> availableModes = new List<ResolutionMode>();
@@ -626,11 +687,9 @@ namespace NVCP_Toggle
         {
             availableModes.Clear();
             cmbResolutions.Items.Clear();
-
+            int modeNum = 0;
             DEVMODE dm = new DEVMODE();
             dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
-
-            int modeNum = 0;
             while (EnumDisplaySettings(null, modeNum, ref dm))
             {
                 var mode = new ResolutionMode
@@ -648,24 +707,28 @@ namespace NVCP_Toggle
                 }
                 modeNum++;
             }
-
-            // Optionally select current resolution.
-            var current = availableModes.FirstOrDefault();
-            if (current != null)
-            {
-                cmbResolutions.SelectedItem = current;
-            }
+            if (availableModes.Any())
+                cmbResolutions.SelectedItem = availableModes.First();
         }
 
         #endregion
 
-        #region Tray Icon (Run in Background)
+        #region Tray Icon Setup
 
         private void SetupTrayIcon()
         {
             trayMenu = new ContextMenuStrip();
-            trayMenu.Items.Add("Show", null, (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; });
-            trayMenu.Items.Add("Exit", null, (s, e) => { trayIcon.Visible = false; Application.Exit(); });
+            trayMenu.Items.Add("Show", null, (s, e) =>
+            {
+                this.Show();
+                this.WindowState = FormWindowState.Normal;
+                trayIcon.Visible = false;
+            });
+            trayMenu.Items.Add("Exit", null, (s, e) =>
+            {
+                trayIcon.Visible = false;
+                Application.Exit();
+            });
 
             trayIcon = new NotifyIcon
             {
@@ -674,11 +737,11 @@ namespace NVCP_Toggle
                 ContextMenuStrip = trayMenu,
                 Visible = false
             };
-
             trayIcon.DoubleClick += (s, e) =>
             {
                 this.Show();
                 this.WindowState = FormWindowState.Normal;
+                trayIcon.Visible = false;
             };
         }
 
@@ -688,94 +751,253 @@ namespace NVCP_Toggle
 
         private void InitializeComponent()
         {
-            // Set up form – increased to 650x600 for more space
+            this.SuspendLayout();
+            // Main form properties.
             this.Text = "NVCP Profile Manager";
-            this.ClientSize = new System.Drawing.Size(650, 600);
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
+            this.ClientSize = new Size(700, 700);
+            this.FormBorderStyle = FormBorderStyle.Sizable;
+            this.MinimumSize = new Size(700, 700);
+            this.MaximizeBox = true;
+            this.BackColor = Color.FromArgb(45, 45, 48);
+            this.ForeColor = Color.White;
 
-            // --- Manual Controls ---
-            FormsLabel lblManual = new FormsLabel { Text = "Manual Settings", Left = 20, Top = 20, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
-            this.Controls.Add(lblManual);
+            // Main TableLayoutPanel.
+            TableLayoutPanel mainPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                RowCount = 4,
+                ColumnCount = 1,
+                Padding = new Padding(10),
+                AutoScroll = true
+            };
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            this.Controls.Add(mainPanel);
 
-            FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance (0–100):", Left = 20, Top = 60, AutoSize = true };
-            nudVibrance = new NumericUpDown { Left = 160, Top = 60, Minimum = 0, Maximum = 100 };
-            this.Controls.Add(lblVibrance);
-            this.Controls.Add(nudVibrance);
+            // --- Manual Settings Group ---
+            GroupBox grpManual = new GroupBox
+            {
+                Text = "Manual Settings",
+                Dock = DockStyle.Top,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                BackColor = Color.FromArgb(45, 45, 48),
+                ForeColor = Color.White,
+                Padding = new Padding(10)
+            };
+            TableLayoutPanel tblManual = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                AutoSize = true,
+                Padding = new Padding(5)
+            };
+            tblManual.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            tblManual.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
+            tblManual.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
 
-            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = 20, Top = 90, AutoSize = true };
-            nudHue = new NumericUpDown { Left = 160, Top = 90, Minimum = -180, Maximum = 180 };
-            this.Controls.Add(lblHue);
-            this.Controls.Add(nudHue);
+            // Manual settings controls.
+            var lblManVibrance = CreateLabel("Vibrance (0–100):");
+            nudVibrance = CreateNumericUpDown(0, 100, DefaultVibrance);
+            trackBarVibrance = CreateTrackBar(0, 100, DefaultVibrance);
+            var lblManHue = CreateLabel("Hue (–180 to 180):");
+            nudHue = CreateNumericUpDown(-180, 180, DefaultHue);
+            trackBarHue = CreateTrackBar(-180, 180, DefaultHue);
+            var lblManBrightness = CreateLabel("Brightness (0.0–2.0):");
+            nudBrightness = CreateNumericUpDown(0, 2, (int)(DefaultBrightness * 100));
+            trackBarBrightness = CreateTrackBar(0, 200, (int)(DefaultBrightness * 100));
+            var lblManContrast = CreateLabel("Contrast (0.0–2.0):");
+            nudContrast = CreateNumericUpDown(0, 2, (int)(DefaultContrast * 100));
+            trackBarContrast = CreateTrackBar(0, 200, (int)(DefaultContrast * 100));
+            var lblManGamma = CreateLabel("Gamma (0.0–3.0):");
+            nudGamma = CreateNumericUpDown(0, 3, (int)(DefaultGamma * 100));
+            trackBarGamma = CreateTrackBar(0, 300, (int)(DefaultGamma * 100));
 
-            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = 20, Top = 120, AutoSize = true };
-            nudBrightness = new NumericUpDown { Left = 160, Top = 120, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
-            this.Controls.Add(lblBrightness);
-            this.Controls.Add(nudBrightness);
+            tblManual.Controls.Add(lblManVibrance, 0, 0);
+            tblManual.Controls.Add(nudVibrance, 1, 0);
+            tblManual.Controls.Add(trackBarVibrance, 2, 0);
 
-            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = 20, Top = 150, AutoSize = true };
-            nudContrast = new NumericUpDown { Left = 160, Top = 150, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
-            this.Controls.Add(lblContrast);
-            this.Controls.Add(nudContrast);
+            tblManual.Controls.Add(lblManHue, 0, 1);
+            tblManual.Controls.Add(nudHue, 1, 1);
+            tblManual.Controls.Add(trackBarHue, 2, 1);
 
-            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = 20, Top = 180, AutoSize = true };
-            nudGamma = new NumericUpDown { Left = 160, Top = 180, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M };
-            this.Controls.Add(lblGamma);
-            this.Controls.Add(nudGamma);
+            tblManual.Controls.Add(lblManBrightness, 0, 2);
+            tblManual.Controls.Add(nudBrightness, 1, 2);
+            tblManual.Controls.Add(trackBarBrightness, 2, 2);
 
-            btnApplyManual = new Button { Text = "Apply Manual Settings", Left = 20, Top = 220, Width = 200 };
+            tblManual.Controls.Add(lblManContrast, 0, 3);
+            tblManual.Controls.Add(nudContrast, 1, 3);
+            tblManual.Controls.Add(trackBarContrast, 2, 3);
+
+            tblManual.Controls.Add(lblManGamma, 0, 4);
+            tblManual.Controls.Add(nudGamma, 1, 4);
+            tblManual.Controls.Add(trackBarGamma, 2, 4);
+
+            FlowLayoutPanel pnlManualButtons = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                Dock = DockStyle.Fill,
+                AutoSize = true
+            };
+            btnApplyManual = CreateButton("Apply Manual Settings");
+            btnReset = CreateButton("Reset to Defaults");
+            pnlManualButtons.Controls.Add(btnApplyManual);
+            pnlManualButtons.Controls.Add(btnReset);
+            tblManual.Controls.Add(pnlManualButtons, 0, 5);
+            tblManual.SetColumnSpan(pnlManualButtons, 3);
+            grpManual.Controls.Add(tblManual);
+            mainPanel.Controls.Add(grpManual);
+
+            // --- Profile Management Group ---
+            GroupBox grpProfiles = new GroupBox
+            {
+                Text = "Profile Management",
+                Dock = DockStyle.Top,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                BackColor = Color.FromArgb(45, 45, 48),
+                ForeColor = Color.White,
+                Padding = new Padding(10)
+            };
+            TableLayoutPanel tblProfiles = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                AutoSize = true,
+                Padding = new Padding(5)
+            };
+            tblProfiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
+            tblProfiles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            lstProfiles = new ListBox { Dock = DockStyle.Fill, Height = 100 };
+            tblProfiles.Controls.Add(lstProfiles, 0, 0);
+            FlowLayoutPanel pnlProfileButtons = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Fill, AutoSize = true };
+            btnAddProfile = CreateButton("Add Profile");
+            btnEditProfile = CreateButton("Edit Profile");
+            btnRemoveProfile = CreateButton("Remove Profile");
+            btnApplyProfile = CreateButton("Apply Profile");
+            pnlProfileButtons.Controls.Add(btnAddProfile);
+            pnlProfileButtons.Controls.Add(btnEditProfile);
+            pnlProfileButtons.Controls.Add(btnRemoveProfile);
+            pnlProfileButtons.Controls.Add(btnApplyProfile);
+            tblProfiles.Controls.Add(pnlProfileButtons, 1, 0);
+            FlowLayoutPanel pnlProfileOptions = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Dock = DockStyle.Fill, AutoSize = true };
+            chkAutoSwitch = new CheckBox { Text = "Enable Auto Profile Switching", AutoSize = true };
+            chkAutoStart = new CheckBox { Text = "Run at Startup", AutoSize = true };
+            pnlProfileOptions.Controls.Add(chkAutoSwitch);
+            pnlProfileOptions.Controls.Add(chkAutoStart);
+            tblProfiles.Controls.Add(pnlProfileOptions, 0, 1);
+            tblProfiles.SetColumnSpan(pnlProfileOptions, 2);
+            grpProfiles.Controls.Add(tblProfiles);
+            mainPanel.Controls.Add(grpProfiles);
+
+            // --- Resolution Changer Group ---
+            GroupBox grpResolution = new GroupBox
+            {
+                Text = "Resolution Changer",
+                Dock = DockStyle.Top,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                BackColor = Color.FromArgb(45, 45, 48),
+                ForeColor = Color.White,
+                Padding = new Padding(10)
+            };
+            TableLayoutPanel tblResolution = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                AutoSize = true,
+                Padding = new Padding(5)
+            };
+            tblResolution.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
+            tblResolution.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            cmbResolutions = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            tblResolution.Controls.Add(cmbResolutions, 0, 0);
+            FlowLayoutPanel pnlResButtons = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Fill, AutoSize = true };
+            btnApplyResolution = CreateButton("Apply Resolution");
+            btnResetResolution = CreateButton("Reset Resolution");
+            pnlResButtons.Controls.Add(btnApplyResolution);
+            pnlResButtons.Controls.Add(btnResetResolution);
+            tblResolution.Controls.Add(pnlResButtons, 1, 0);
+            grpResolution.Controls.Add(tblResolution);
+            mainPanel.Controls.Add(grpResolution);
+
+            // --- Status Label ---
+            lblStatus = new Label
+            {
+                Text = "Status",
+                Dock = DockStyle.Fill,
+                Height = 50,
+                BorderStyle = BorderStyle.FixedSingle,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(5)
+            };
+            mainPanel.Controls.Add(lblStatus);
+
+            // Wire up events.
             btnApplyManual.Click += btnApplyManual_Click;
-            this.Controls.Add(btnApplyManual);
-
-            btnReset = new Button { Text = "Reset to Defaults", Left = 240, Top = 220, Width = 150 };
             btnReset.Click += btnReset_Click;
-            this.Controls.Add(btnReset);
-
-            // --- Profile Management Controls ---
-            FormsLabel lblProfiles = new FormsLabel { Text = "Profiles", Left = 20, Top = 270, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
-            this.Controls.Add(lblProfiles);
-
-            lstProfiles = new ListBox { Left = 20, Top = 300, Width = 350, Height = 100 };
-            this.Controls.Add(lstProfiles);
-
-            btnAddProfile = new Button { Text = "Add Profile", Left = 380, Top = 300, Width = 150 };
             btnAddProfile.Click += btnAddProfile_Click;
-            this.Controls.Add(btnAddProfile);
-
-            btnEditProfile = new Button { Text = "Edit Profile", Left = 380, Top = 340, Width = 150 };
             btnEditProfile.Click += btnEditProfile_Click;
-            this.Controls.Add(btnEditProfile);
-
-            btnRemoveProfile = new Button { Text = "Remove Profile", Left = 380, Top = 380, Width = 150 };
             btnRemoveProfile.Click += btnRemoveProfile_Click;
-            this.Controls.Add(btnRemoveProfile);
-
-            btnApplyProfile = new Button { Text = "Apply Profile", Left = 380, Top = 420, Width = 150 };
             btnApplyProfile.Click += btnApplyProfile_Click;
-            this.Controls.Add(btnApplyProfile);
-
-            chkAutoSwitch = new CheckBox { Text = "Enable Auto Profile Switching", Left = 20, Top = 420, AutoSize = true };
             chkAutoSwitch.CheckedChanged += chkAutoSwitch_CheckedChanged;
-            this.Controls.Add(chkAutoSwitch);
-
-            // --- Resolution Changer Controls ---
-            FormsLabel lblResolution = new FormsLabel { Text = "Resolution Changer", Left = 20, Top = 470, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
-            this.Controls.Add(lblResolution);
-
-            cmbResolutions = new ComboBox { Left = 20, Top = 500, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList };
-            this.Controls.Add(cmbResolutions);
-
-            btnApplyResolution = new Button { Text = "Apply Resolution", Left = 380, Top = 500, Width = 150 };
+            chkAutoStart.CheckedChanged += chkAutoStart_CheckedChanged;
             btnApplyResolution.Click += btnApplyResolution_Click;
-            this.Controls.Add(btnApplyResolution);
-
-            btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 540, Width = 150 };
             btnResetResolution.Click += btnResetResolution_Click;
-            this.Controls.Add(btnResetResolution);
 
-            // --- Status ---
-            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 540, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
-            this.Controls.Add(lblStatus);
+            this.ResumeLayout(false);
+        }
+
+        // Helper methods for creating controls.
+        private Label CreateLabel(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = true,
+                Dock = DockStyle.Fill,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9)
+            };
+        }
+
+        private NumericUpDown CreateNumericUpDown(decimal min, decimal max, int initial)
+        {
+            return new NumericUpDown
+            {
+                Minimum = min,
+                Maximum = max,
+                Value = initial,
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(63, 63, 70),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9)
+            };
+        }
+
+        private TrackBar CreateTrackBar(int min, int max, int initial)
+        {
+            return new TrackBar
+            {
+                Minimum = min,
+                Maximum = max,
+                Value = initial,
+                Dock = DockStyle.Fill,
+                TickStyle = TickStyle.None,
+                BackColor = Color.FromArgb(45, 45, 48)
+            };
+        }
+
+        private Button CreateButton(string text)
+        {
+            return new Button
+            {
+                Text = text,
+                AutoSize = true,
+                BackColor = Color.FromArgb(63, 63, 70),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Margin = new Padding(3)
+            };
         }
 
         #endregion

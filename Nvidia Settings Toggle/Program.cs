@@ -12,5 +12,6 @@ namespace NVCP_Toggle
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
         }
+
     }
 }

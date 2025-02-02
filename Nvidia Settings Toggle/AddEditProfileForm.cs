@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using FormsLabel = System.Windows.Forms.Label;
@@ -13,30 +14,31 @@ namespace NVCP_Toggle
         private TextBox txtProfileName;
         private TextBox txtProcessName;
         private NumericUpDown nudVibrance;
+        private TrackBar trackBarVibrance;
         private NumericUpDown nudHue;
+        private TrackBar trackBarHue;
         private NumericUpDown nudBrightness;
+        private TrackBar trackBarBrightness;
         private NumericUpDown nudContrast;
+        private TrackBar trackBarContrast;
         private NumericUpDown nudGamma;
-        private ComboBox cmbProfileResolutions; // Drop-down for resolution
+        private TrackBar trackBarGamma;
+        private ComboBox cmbProfileResolutions;
         private Button btnOK;
         private Button btnCancel;
 
-        // Helper class for resolution modes (same as in MainForm)
+        // Helper class for resolution modes.
         public class ResolutionMode
         {
             public int Width { get; set; }
             public int Height { get; set; }
             public int Frequency { get; set; }
             public int BitsPerPel { get; set; }
-            public override string ToString()
-            {
-                return $"{Width} x {Height}, {Frequency} Hz, {BitsPerPel} bpp";
-            }
+            public override string ToString() => $"{Width} x {Height}, {Frequency} Hz, {BitsPerPel} bpp";
         }
 
         private List<ResolutionMode> availableModes = new List<ResolutionMode>();
 
-        // P/Invoke definitions (same as MainForm)
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         public struct DEVMODE
         {
@@ -81,9 +83,10 @@ namespace NVCP_Toggle
         {
             InitializeComponent();
             PopulateResolutions();
+            SetupSliderSync();
+            ApplyDarkTheme();
         }
 
-        // Overloaded constructor for editing an existing profile.
         public AddEditProfileForm(MainForm.DisplayProfile existingProfile) : this()
         {
             Profile = existingProfile;
@@ -94,8 +97,6 @@ namespace NVCP_Toggle
             nudBrightness.Value = (decimal)Profile.Brightness;
             nudContrast.Value = (decimal)Profile.Contrast;
             nudGamma.Value = (decimal)Profile.Gamma;
-
-            // If the profile has a resolution set, try to select it.
             if (Profile.ResolutionWidth != 0 && Profile.ResolutionHeight != 0 &&
                 Profile.ResolutionFrequency != 0 && Profile.ResolutionBpp != 0)
             {
@@ -113,99 +114,89 @@ namespace NVCP_Toggle
             }
             else
             {
-                cmbProfileResolutions.SelectedIndex = 0; // "No Change" option
+                cmbProfileResolutions.SelectedIndex = 0;
             }
         }
 
-        private void InitializeComponent()
+        private void SetupSliderSync()
         {
-            this.Text = "Add/Edit Profile";
-            this.ClientSize = new System.Drawing.Size(350, 380);
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
+            // Vibrance.
+            trackBarVibrance.Minimum = 0;
+            trackBarVibrance.Maximum = 100;
+            trackBarVibrance.Value = (int)nudVibrance.Value;
+            trackBarVibrance.Scroll += (s, e) => { nudVibrance.Value = trackBarVibrance.Value; };
+            nudVibrance.ValueChanged += (s, e) => { trackBarVibrance.Value = (int)nudVibrance.Value; };
 
-            int labelLeft = 20, controlLeft = 140;
-            int currentTop = 20, gap = 30;
+            // Hue.
+            trackBarHue.Minimum = -180;
+            trackBarHue.Maximum = 180;
+            trackBarHue.Value = (int)nudHue.Value;
+            trackBarHue.Scroll += (s, e) => { nudHue.Value = trackBarHue.Value; };
+            nudHue.ValueChanged += (s, e) => { trackBarHue.Value = (int)nudHue.Value; };
 
-            // Profile Name
-            FormsLabel lblName = new FormsLabel { Text = "Profile Name:", Left = labelLeft, Top = currentTop, AutoSize = true };
-            txtProfileName = new TextBox { Left = controlLeft, Top = currentTop, Width = 170 };
-            this.Controls.Add(lblName);
-            this.Controls.Add(txtProfileName);
+            // Brightness.
+            trackBarBrightness.Minimum = 0;
+            trackBarBrightness.Maximum = 200;
+            trackBarBrightness.Value = (int)(nudBrightness.Value * 100);
+            trackBarBrightness.Scroll += (s, e) => { nudBrightness.Value = (decimal)trackBarBrightness.Value / 100; };
+            nudBrightness.ValueChanged += (s, e) => { trackBarBrightness.Value = (int)(nudBrightness.Value * 100); };
 
-            // Process Name
-            currentTop += gap;
-            FormsLabel lblProcess = new FormsLabel { Text = "Process Name (without .exe):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            txtProcessName = new TextBox { Left = labelLeft, Top = currentTop + 20, Width = 290 };
-            this.Controls.Add(lblProcess);
-            this.Controls.Add(txtProcessName);
-            currentTop += 40;
+            // Contrast.
+            trackBarContrast.Minimum = 0;
+            trackBarContrast.Maximum = 200;
+            trackBarContrast.Value = (int)(nudContrast.Value * 100);
+            trackBarContrast.Scroll += (s, e) => { nudContrast.Value = (decimal)trackBarContrast.Value / 100; };
+            nudContrast.ValueChanged += (s, e) => { trackBarContrast.Value = (int)(nudContrast.Value * 100); };
 
-            // Vibrance
-            FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance (0–100):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudVibrance = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 100 };
-            this.Controls.Add(lblVibrance);
-            this.Controls.Add(nudVibrance);
-            currentTop += gap;
+            // Gamma.
+            trackBarGamma.Minimum = 0;
+            trackBarGamma.Maximum = 300;
+            trackBarGamma.Value = (int)(nudGamma.Value * 100);
+            trackBarGamma.Scroll += (s, e) => { nudGamma.Value = (decimal)trackBarGamma.Value / 100; };
+            nudGamma.ValueChanged += (s, e) => { trackBarGamma.Value = (int)(nudGamma.Value * 100); };
+        }
 
-            // Hue
-            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudHue = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = -180, Maximum = 180 };
-            this.Controls.Add(lblHue);
-            this.Controls.Add(nudHue);
-            currentTop += gap;
+        private void ApplyDarkTheme()
+        {
+            this.BackColor = Color.FromArgb(45, 45, 48);
+            this.ForeColor = Color.White;
+            foreach (Control ctl in this.Controls)
+                ApplyDarkThemeRecursively(ctl);
+        }
 
-            // Brightness
-            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudBrightness = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
-            this.Controls.Add(lblBrightness);
-            this.Controls.Add(nudBrightness);
-            currentTop += gap;
-
-            // Contrast
-            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudContrast = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M };
-            this.Controls.Add(lblContrast);
-            this.Controls.Add(nudContrast);
-            currentTop += gap;
-
-            // Gamma
-            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudGamma = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M };
-            this.Controls.Add(lblGamma);
-            this.Controls.Add(nudGamma);
-            currentTop += gap;
-
-            // Resolution Selection
-            FormsLabel lblRes = new FormsLabel { Text = "Resolution:", Left = labelLeft, Top = currentTop, AutoSize = true };
-            cmbProfileResolutions = new ComboBox { Left = controlLeft, Top = currentTop, Width = 170, DropDownStyle = ComboBoxStyle.DropDownList };
-            this.Controls.Add(lblRes);
-            this.Controls.Add(cmbProfileResolutions);
-            currentTop += gap;
-
-            // Instruction for resolution drop-down
-            FormsLabel lblInstr = new FormsLabel { Text = "Select a resolution or 'No Change'", Left = labelLeft, Top = currentTop, AutoSize = true, ForeColor = System.Drawing.Color.DarkBlue };
-            this.Controls.Add(lblInstr);
-            currentTop += gap;
-
-            // OK and Cancel buttons
-            btnOK = new Button { Text = "OK", Left = controlLeft, Top = currentTop, Width = 70 };
-            btnOK.Click += BtnOK_Click;
-            this.Controls.Add(btnOK);
-
-            btnCancel = new Button { Text = "Cancel", Left = controlLeft + 100, Top = currentTop, Width = 70 };
-            btnCancel.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; this.Close(); };
-            this.Controls.Add(btnCancel);
+        private void ApplyDarkThemeRecursively(Control ctl)
+        {
+            ctl.BackColor = Color.FromArgb(45, 45, 48);
+            ctl.ForeColor = Color.White;
+            if (ctl is Button btn)
+            {
+                btn.BackColor = Color.FromArgb(63, 63, 70);
+                btn.FlatStyle = FlatStyle.Flat;
+                btn.FlatAppearance.BorderColor = Color.FromArgb(28, 28, 28);
+            }
+            if (ctl is NumericUpDown nud)
+            {
+                nud.BackColor = Color.FromArgb(63, 63, 70);
+                nud.ForeColor = Color.White;
+            }
+            if (ctl is TrackBar tb)
+            {
+                tb.BackColor = Color.FromArgb(45, 45, 48);
+            }
+            if (ctl is ComboBox cb)
+            {
+                cb.BackColor = Color.FromArgb(63, 63, 70);
+                cb.ForeColor = Color.White;
+            }
+            foreach (Control child in ctl.Controls)
+                ApplyDarkThemeRecursively(child);
         }
 
         private void PopulateResolutions()
         {
             availableModes.Clear();
             cmbProfileResolutions.Items.Clear();
-            // Add "No Change" option as the first item.
             cmbProfileResolutions.Items.Add("No Change");
-
             DEVMODE dm = new DEVMODE();
             dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
             int modeNum = 0;
@@ -226,7 +217,6 @@ namespace NVCP_Toggle
                 }
                 modeNum++;
             }
-            // Default select "No Change"
             cmbProfileResolutions.SelectedIndex = 0;
         }
 
@@ -239,8 +229,6 @@ namespace NVCP_Toggle
             Profile.Brightness = (float)nudBrightness.Value;
             Profile.Contrast = (float)nudContrast.Value;
             Profile.Gamma = (float)nudGamma.Value;
-
-            // If a resolution mode (other than "No Change") is selected, save its values.
             if (cmbProfileResolutions.SelectedItem is ResolutionMode mode)
             {
                 Profile.ResolutionWidth = mode.Width;
@@ -250,7 +238,6 @@ namespace NVCP_Toggle
             }
             else
             {
-                // "No Change" selected; set to 0.
                 Profile.ResolutionWidth = 0;
                 Profile.ResolutionHeight = 0;
                 Profile.ResolutionFrequency = 0;
@@ -258,6 +245,96 @@ namespace NVCP_Toggle
             }
             this.DialogResult = DialogResult.OK;
             this.Close();
+        }
+
+        private void InitializeComponent()
+        {
+            this.Text = "Add/Edit Profile";
+            this.ClientSize = new Size(500, 500);
+            this.FormBorderStyle = FormBorderStyle.Sizable;
+            this.MinimumSize = new Size(500, 500);
+            this.MaximizeBox = true;
+            int labelLeft = 20, controlLeft = 140;
+            int currentTop = 20, gap = 30;
+
+            // Profile Name.
+            FormsLabel lblName = new FormsLabel { Text = "Profile Name:", Left = labelLeft, Top = currentTop, AutoSize = true };
+            txtProfileName = new TextBox { Left = controlLeft, Top = currentTop, Width = 300 };
+            this.Controls.Add(lblName);
+            this.Controls.Add(txtProfileName);
+
+            // Process Name.
+            currentTop += gap;
+            FormsLabel lblProcess = new FormsLabel { Text = "Process Name (without .exe):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            txtProcessName = new TextBox { Left = labelLeft, Top = currentTop + 20, Width = 430 };
+            this.Controls.Add(lblProcess);
+            this.Controls.Add(txtProcessName);
+            currentTop += 40;
+
+            // Vibrance.
+            FormsLabel lblVibrance = new FormsLabel { Text = "Vibrance (0–100):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudVibrance = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 100, Width = 80 };
+            this.Controls.Add(lblVibrance);
+            this.Controls.Add(nudVibrance);
+            trackBarVibrance = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarVibrance);
+            currentTop += gap;
+
+            // Hue.
+            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudHue = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = -180, Maximum = 180, Width = 80 };
+            this.Controls.Add(lblHue);
+            this.Controls.Add(nudHue);
+            trackBarHue = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarHue);
+            currentTop += gap;
+
+            // Brightness.
+            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudBrightness = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            this.Controls.Add(lblBrightness);
+            this.Controls.Add(nudBrightness);
+            trackBarBrightness = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarBrightness);
+            currentTop += gap;
+
+            // Contrast.
+            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudContrast = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            this.Controls.Add(lblContrast);
+            this.Controls.Add(nudContrast);
+            trackBarContrast = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarContrast);
+            currentTop += gap;
+
+            // Gamma.
+            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudGamma = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            this.Controls.Add(lblGamma);
+            this.Controls.Add(nudGamma);
+            trackBarGamma = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
+            this.Controls.Add(trackBarGamma);
+            currentTop += gap;
+
+            // Resolution selection.
+            FormsLabel lblRes = new FormsLabel { Text = "Resolution:", Left = labelLeft, Top = currentTop, AutoSize = true };
+            cmbProfileResolutions = new ComboBox { Left = controlLeft, Top = currentTop, Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };
+            this.Controls.Add(lblRes);
+            this.Controls.Add(cmbProfileResolutions);
+            currentTop += gap;
+
+            // Instruction.
+            FormsLabel lblInstr = new FormsLabel { Text = "Select a resolution or 'No Change'", Left = labelLeft, Top = currentTop, AutoSize = true, ForeColor = Color.LightBlue };
+            this.Controls.Add(lblInstr);
+            currentTop += gap;
+
+            // OK and Cancel.
+            btnOK = new Button { Text = "OK", Left = controlLeft, Top = currentTop, Width = 70 };
+            btnOK.Click += BtnOK_Click;
+            this.Controls.Add(btnOK);
+            btnCancel = new Button { Text = "Cancel", Left = controlLeft + 100, Top = currentTop, Width = 70 };
+            btnCancel.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; this.Close(); };
+            this.Controls.Add(btnCancel);
         }
     }
 }
