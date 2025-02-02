@@ -19,7 +19,7 @@ namespace NVCP_Toggle
             this.FormClosing += ResolutionConfirmForm_FormClosing;
         }
 
-        private void CountdownTimer_Tick(object sender, EventArgs e)
+        private void CountdownTimer_Tick(object? sender, EventArgs e)
         {
             countdownSeconds--;
             UpdateLabel();
@@ -36,29 +36,29 @@ namespace NVCP_Toggle
             lblCountdown.Text = $"Keep this resolution?\nReverting in {countdownSeconds} seconds...";
         }
 
-        private void btnKeep_Click(object sender, EventArgs e)
+        private void btnKeep_Click(object? sender, EventArgs e)
         {
             countdownTimer.Stop();
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
 
-        private void btnCancel_Click(object sender, EventArgs e)
+        private void btnCancel_Click(object? sender, EventArgs e)
         {
             countdownTimer.Stop();
             this.DialogResult = DialogResult.Cancel;
             this.Close();
         }
 
-        private void ResolutionConfirmForm_FormClosing(object sender, FormClosingEventArgs e)
+        private void ResolutionConfirmForm_FormClosing(object? sender, FormClosingEventArgs e)
         {
             if (this.DialogResult != DialogResult.OK)
                 this.DialogResult = DialogResult.Cancel;
         }
 
-        private Label lblCountdown;
-        private Button btnKeep;
-        private Button btnCancel;
+        private Label? lblCountdown;
+        private Button? btnKeep;
+        private Button? btnCancel;
 
         private void InitializeComponent()
         {

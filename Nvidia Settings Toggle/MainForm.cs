@@ -143,6 +143,7 @@ namespace NVCP_Toggle
         private TrackBar trackBarGamma;
         private Button btnApplyManual;
         private Button btnReset;
+        private Button btnSaveChanges; // new save changes button
 
         // Profile management.
         private ListBox lstProfiles;
@@ -178,29 +179,11 @@ namespace NVCP_Toggle
 
         #region Form Load and Initialization
 
-        private void MainForm_Load(object sender, EventArgs e)
+        private void MainForm_Load(object? sender, EventArgs e)
         {
-            // Allow resizing.
-            this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.MinimumSize = new System.Drawing.Size(650, 600);
-
-            // Save current resolution.
-            DEVMODE dm = new DEVMODE();
-            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
-            if (EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm))
+            if (!CheckNvidiaSupport())
             {
-                defaultWidth = dm.dmPelsWidth;
-                defaultHeight = dm.dmPelsHeight;
-                defaultFrequency = dm.dmDisplayFrequency;
-                defaultBpp = dm.dmBitsPerPel;
-            }
-
-            // Initialize NVIDIA API.
-            try { NVIDIA.Initialize(); }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to initialize NVIDIA API:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                btnApplyManual.Enabled = false;
+                MessageBox.Show("NVIDIA APIs are not available.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -213,7 +196,7 @@ namespace NVCP_Toggle
             try
             {
                 var config = new ConfigurationBuilder()
-                    .SetBasePath(Environment.CurrentDirectory)
+                    .SetBasePath(Application.StartupPath) // changed from Environment.CurrentDirectory
                     .AddJsonFile("appSettings.json", optional: true)
                     .Build();
 
@@ -230,7 +213,7 @@ namespace NVCP_Toggle
                 MessageBox.Show($"Error loading settings:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
-            // Set auto-start according to the setting.
+            // Apply auto-start and save settings setting.
             SetAutoStart(chkAutoStart.Checked);
 
             PopulateResolutions();
@@ -238,24 +221,57 @@ namespace NVCP_Toggle
             ApplyDarkTheme();
             UpdateStatusDisplay();
             SetupSliderSync();
+
+            // Removed applying manual settings on startup.
+            // ApplyManualSettings((int)nudVibrance.Value, (int)nudHue.Value, (float)nudBrightness.Value, (float)nudContrast.Value, (float)nudGamma.Value);
+
+            // Check command-line arguments to determine window state.
+            if (Environment.GetCommandLineArgs().Contains("-minimized"))
+            {
+                this.WindowState = FormWindowState.Minimized;
+                this.Hide();
+                trayIcon.Visible = true;
+            }
+            else
+            {
+                // Open normally.
+                this.WindowState = FormWindowState.Normal;
+                this.Show();
+            }
         }
 
-        // Sets (or removes) the auto-start registry key.
+        private bool CheckNvidiaSupport()
+        {
+            try
+            {
+                var displays = NvAPIWrapper.Display.Display.GetDisplays();
+                return displays != null && displays.Any();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void SetAutoStart(bool enable)
         {
             try
             {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, true))
+                string exePath = Application.ExecutablePath;
+                using (var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, writable: true))
                 {
                     if (enable)
-                        key.SetValue(AppName, Application.ExecutablePath);
+                        key?.SetValue(AppName, $"\"{exePath}\" -minimized");
                     else
-                        key.DeleteValue(AppName, false);
+                        key?.DeleteValue(AppName, false);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to update auto start setting: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Failed to update auto-start setting: {ex.Message}",
+                                "Error",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
             }
         }
 
@@ -338,7 +354,7 @@ namespace NVCP_Toggle
 
         #region UI Event Handlers
 
-        private void btnApplyManual_Click(object sender, EventArgs e)
+        private void btnApplyManual_Click(object? sender, EventArgs e)
         {
             ApplyManualSettings((int)nudVibrance.Value, (int)nudHue.Value, (float)nudBrightness.Value, (float)nudContrast.Value, (float)nudGamma.Value);
             activeProfile = null;
@@ -346,14 +362,23 @@ namespace NVCP_Toggle
             SaveManualSettings();
         }
 
-        private void btnReset_Click(object sender, EventArgs e)
+        private void btnReset_Click(object? sender, EventArgs e)
         {
             ResetToDefaults();
             activeProfile = null;
             UpdateStatusDisplay();
         }
 
-        private void btnAddProfile_Click(object sender, EventArgs e)
+        // New Save Changes event handler.
+        private void btnSaveChanges_Click(object? sender, EventArgs e)
+        {
+            // Removed applying manual settings on saving.
+            // ApplyManualSettings((int)nudVibrance.Value, (int)nudHue.Value, (float)nudBrightness.Value, (float)nudContrast.Value, (float)nudGamma.Value);
+            SaveManualSettings();
+            MessageBox.Show("Settings saved.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void btnAddProfile_Click(object? sender, EventArgs e)
         {
             using (var dlg = new AddEditProfileForm())
             {
@@ -367,7 +392,7 @@ namespace NVCP_Toggle
             }
         }
 
-        private void btnEditProfile_Click(object sender, EventArgs e)
+        private void btnEditProfile_Click(object? sender, EventArgs e)
         {
             if (lstProfiles.SelectedIndex >= 0)
             {
@@ -385,7 +410,7 @@ namespace NVCP_Toggle
             }
         }
 
-        private void btnRemoveProfile_Click(object sender, EventArgs e)
+        private void btnRemoveProfile_Click(object? sender, EventArgs e)
         {
             if (lstProfiles.SelectedIndex >= 0)
             {
@@ -395,7 +420,7 @@ namespace NVCP_Toggle
             }
         }
 
-        private void btnApplyProfile_Click(object sender, EventArgs e)
+        private void btnApplyProfile_Click(object? sender, EventArgs e)
         {
             if (lstProfiles.SelectedIndex >= 0)
             {
@@ -414,7 +439,7 @@ namespace NVCP_Toggle
             }
         }
 
-        private void chkAutoSwitch_CheckedChanged(object sender, EventArgs e)
+        private void chkAutoSwitch_CheckedChanged(object? sender, EventArgs e)
         {
             isMonitoring = chkAutoSwitch.Checked;
             if (isMonitoring)
@@ -428,13 +453,13 @@ namespace NVCP_Toggle
             SaveManualSettings();
         }
 
-        private void chkAutoStart_CheckedChanged(object sender, EventArgs e)
+        private void chkAutoStart_CheckedChanged(object? sender, EventArgs e)
         {
             SetAutoStart(chkAutoStart.Checked);
             SaveManualSettings();
         }
 
-        private void btnApplyResolution_Click(object sender, EventArgs e)
+        private void btnApplyResolution_Click(object? sender, EventArgs e)
         {
             if (cmbResolutions.SelectedItem is ResolutionMode mode)
             {
@@ -463,7 +488,7 @@ namespace NVCP_Toggle
             }
         }
 
-        private void btnResetResolution_Click(object sender, EventArgs e)
+        private void btnResetResolution_Click(object? sender, EventArgs e)
         {
             if (ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp) == DISP_CHANGE_SUCCESSFUL)
                 MessageBox.Show("Resolution reset to default.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -471,7 +496,7 @@ namespace NVCP_Toggle
                 MessageBox.Show("Failed to reset resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-        private void MainForm_Resize(object sender, EventArgs e)
+        private void MainForm_Resize(object? sender, EventArgs e)
         {
             if (this.WindowState == FormWindowState.Minimized)
             {
@@ -490,9 +515,20 @@ namespace NVCP_Toggle
             var windowsDisplay = GetWindowsDisplay();
             if (nvDisplay != null && windowsDisplay != null)
             {
+                // Clamp values to valid ranges.
+                float clampedBrightness = Math.Max(0.0f, Math.Min(2.0f, brightness));
+                float clampedContrast = Math.Max(0.0f, Math.Min(2.0f, contrast));
+                float clampedGamma = Math.Max(0.0f, Math.Min(3.0f, gamma));
+                try
+                {
+                    windowsDisplay.GammaRamp = new DisplayGammaRamp(clampedBrightness, clampedContrast, clampedGamma);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error applying gamma ramp: {ex.Message}", "Gamma Ramp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 nvDisplay.DigitalVibranceControl.CurrentLevel = vibrance;
                 nvDisplay.HUEControl.CurrentAngle = hue;
-                windowsDisplay.GammaRamp = new DisplayGammaRamp(brightness, contrast, gamma);
             }
         }
 
@@ -609,7 +645,7 @@ namespace NVCP_Toggle
 
         private void LoadProfiles()
         {
-            var profilePath = Path.Combine(Environment.CurrentDirectory, "profiles.json");
+            var profilePath = Path.Combine(Application.StartupPath, "profiles.json"); // changed from Environment.CurrentDirectory
             if (File.Exists(profilePath))
             {
                 var json = File.ReadAllText(profilePath);
@@ -622,7 +658,7 @@ namespace NVCP_Toggle
         private void SaveProfiles()
         {
             var json = JsonConvert.SerializeObject(new { Profiles = profiles }, Formatting.Indented);
-            File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "profiles.json"), json);
+            File.WriteAllText(Path.Combine(Application.StartupPath, "profiles.json"), json); // changed path
         }
 
         private void SaveManualSettings()
@@ -638,7 +674,7 @@ namespace NVCP_Toggle
                 autoStart = chkAutoStart.Checked
             };
             string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
-            File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "appSettings.json"), json);
+            File.WriteAllText(Path.Combine(Application.StartupPath, "appSettings.json"), json); // changed path
         }
 
         #endregion
@@ -799,6 +835,10 @@ namespace NVCP_Toggle
             btnReset = new Button { Text = "Reset to Defaults", Left = 240, Top = 280, Width = 150 };
             btnReset.Click += btnReset_Click;
             this.Controls.Add(btnReset);
+            // Add the new Save Changes button.
+            btnSaveChanges = new Button { Text = "Save Changes", Left = 400, Top = 280, Width = 150 };
+            btnSaveChanges.Click += btnSaveChanges_Click;
+            this.Controls.Add(btnSaveChanges);
             // --- Profile Management Controls ---
             FormsLabel lblProfiles = new FormsLabel { Text = "Profiles", Left = 20, Top = 310, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
             this.Controls.Add(lblProfiles);
