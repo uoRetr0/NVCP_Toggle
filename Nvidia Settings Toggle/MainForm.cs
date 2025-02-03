@@ -22,11 +22,11 @@ namespace NVCP_Toggle
     {
         #region Default Display Settings
 
-        private const int DefaultVibrance = 50;
-        private const int DefaultHue = 0;
-        private const float DefaultBrightness = 0.50f;
-        private const float DefaultContrast = 0.50f;
-        private const float DefaultGamma = 1.0f;
+        private static int DefaultVibrance = 50;
+        private static int DefaultHue = 0;
+        private static float DefaultBrightness = 50f; // percent (0–100)
+        private static float DefaultContrast = 50f;   // percent (0–100)
+        private static float DefaultGamma = 1.0f;       // 0.30–2.80
         private static readonly DisplayGammaRamp DefaultGammaRamp = new DisplayGammaRamp();
 
         // Saved default resolution values.
@@ -144,6 +144,7 @@ namespace NVCP_Toggle
         private Button btnApplyManual;
         private Button btnReset;
         private Button btnSaveChanges; // new save changes button
+        private Button btnSetDefault; // new set default button
 
         // Profile management.
         private ListBox lstProfiles;
@@ -277,37 +278,37 @@ namespace NVCP_Toggle
 
         private void SetupSliderSync()
         {
-            // Vibrance.
+            // Vibrance (0–100).
             trackBarVibrance.Minimum = 0;
             trackBarVibrance.Maximum = 100;
             trackBarVibrance.Value = (int)nudVibrance.Value;
             trackBarVibrance.Scroll += (s, e) => { nudVibrance.Value = trackBarVibrance.Value; };
             nudVibrance.ValueChanged += (s, e) => { trackBarVibrance.Value = (int)nudVibrance.Value; };
 
-            // Hue.
-            trackBarHue.Minimum = -180;
-            trackBarHue.Maximum = 180;
+            // Hue (0–359).
+            trackBarHue.Minimum = 0;
+            trackBarHue.Maximum = 359;
             trackBarHue.Value = (int)nudHue.Value;
             trackBarHue.Scroll += (s, e) => { nudHue.Value = trackBarHue.Value; };
             nudHue.ValueChanged += (s, e) => { trackBarHue.Value = (int)nudHue.Value; };
 
-            // Brightness.
+            // Brightness (0–100%).
             trackBarBrightness.Minimum = 0;
-            trackBarBrightness.Maximum = 200;
-            trackBarBrightness.Value = (int)(nudBrightness.Value * 100);
-            trackBarBrightness.Scroll += (s, e) => { nudBrightness.Value = (decimal)trackBarBrightness.Value / 100; };
-            nudBrightness.ValueChanged += (s, e) => { trackBarBrightness.Value = (int)(nudBrightness.Value * 100); };
+            trackBarBrightness.Maximum = 100;
+            trackBarBrightness.Value = (int)nudBrightness.Value;
+            trackBarBrightness.Scroll += (s, e) => { nudBrightness.Value = trackBarBrightness.Value; };
+            nudBrightness.ValueChanged += (s, e) => { trackBarBrightness.Value = (int)nudBrightness.Value; };
 
-            // Contrast.
+            // Contrast (0–100%).
             trackBarContrast.Minimum = 0;
-            trackBarContrast.Maximum = 200;
-            trackBarContrast.Value = (int)(nudContrast.Value * 100);
-            trackBarContrast.Scroll += (s, e) => { nudContrast.Value = (decimal)trackBarContrast.Value / 100; };
-            nudContrast.ValueChanged += (s, e) => { trackBarContrast.Value = (int)(nudContrast.Value * 100); };
+            trackBarContrast.Maximum = 100;
+            trackBarContrast.Value = (int)nudContrast.Value;
+            trackBarContrast.Scroll += (s, e) => { nudContrast.Value = trackBarContrast.Value; };
+            nudContrast.ValueChanged += (s, e) => { trackBarContrast.Value = (int)nudContrast.Value; };
 
-            // Gamma.
-            trackBarGamma.Minimum = 0;
-            trackBarGamma.Maximum = 300;
+            // Gamma (0.30–2.80). TrackBar uses scaled values (x100).
+            trackBarGamma.Minimum = 30;
+            trackBarGamma.Maximum = 280;
             trackBarGamma.Value = (int)(nudGamma.Value * 100);
             trackBarGamma.Scroll += (s, e) => { nudGamma.Value = (decimal)trackBarGamma.Value / 100; };
             nudGamma.ValueChanged += (s, e) => { trackBarGamma.Value = (int)(nudGamma.Value * 100); };
@@ -376,6 +377,17 @@ namespace NVCP_Toggle
             // ApplyManualSettings((int)nudVibrance.Value, (int)nudHue.Value, (float)nudBrightness.Value, (float)nudContrast.Value, (float)nudGamma.Value);
             SaveManualSettings();
             MessageBox.Show("Settings saved.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // New Set Default event handler.
+        private void btnSetDefault_Click(object? sender, EventArgs e)
+        {
+            DefaultVibrance = (int)nudVibrance.Value;
+            DefaultHue = (int)nudHue.Value;
+            DefaultBrightness = (float)nudBrightness.Value;
+            DefaultContrast = (float)nudContrast.Value;
+            DefaultGamma = (float)nudGamma.Value;
+            MessageBox.Show("New default settings applied.", "Defaults Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void btnAddProfile_Click(object? sender, EventArgs e)
@@ -515,13 +527,14 @@ namespace NVCP_Toggle
             var windowsDisplay = GetWindowsDisplay();
             if (nvDisplay != null && windowsDisplay != null)
             {
-                // Clamp values to valid ranges.
-                float clampedBrightness = Math.Max(0.0f, Math.Min(2.0f, brightness));
-                float clampedContrast = Math.Max(0.0f, Math.Min(2.0f, contrast));
-                float clampedGamma = Math.Max(0.0f, Math.Min(3.0f, gamma));
+                // Convert percent values (0–100) to ratios (0.0–1.0)
+                float normBrightness = Math.Max(0.0f, Math.Min(1.0f, brightness / 100f));
+                float normContrast = Math.Max(0.0f, Math.Min(1.0f, contrast / 100f));
+                // Gamma remains unchanged, clamped to [0.30, 2.80]
+                float clampedGamma = Math.Max(0.30f, Math.Min(2.80f, gamma));
                 try
                 {
-                    windowsDisplay.GammaRamp = new DisplayGammaRamp(clampedBrightness, clampedContrast, clampedGamma);
+                    windowsDisplay.GammaRamp = new DisplayGammaRamp(normBrightness, normContrast, clampedGamma);
                 }
                 catch (Exception ex)
                 {
@@ -576,7 +589,7 @@ namespace NVCP_Toggle
             {
                 nvDisplay.DigitalVibranceControl.CurrentLevel = DefaultVibrance;
                 nvDisplay.HUEControl.CurrentAngle = DefaultHue;
-                windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness, DefaultContrast, DefaultGamma);
+                windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness / 100f, DefaultContrast / 100f, DefaultGamma);
                 ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp);
             }
         }
@@ -805,26 +818,26 @@ namespace NVCP_Toggle
             this.Controls.Add(nudVibrance);
             trackBarVibrance = new TrackBar { Left = 250, Top = 60, Width = 200, TickStyle = TickStyle.None };
             this.Controls.Add(trackBarVibrance);
-            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = 20, Top = 100, AutoSize = true };
-            nudHue = new NumericUpDown { Left = 160, Top = 100, Minimum = -180, Maximum = 180, Width = 80 };
+            FormsLabel lblHue = new FormsLabel { Text = "Hue (0–359):", Left = 20, Top = 100, AutoSize = true };
+            nudHue = new NumericUpDown { Left = 160, Top = 100, Minimum = 0, Maximum = 359, Width = 80 };
             this.Controls.Add(lblHue);
             this.Controls.Add(nudHue);
             trackBarHue = new TrackBar { Left = 250, Top = 100, Width = 200, TickStyle = TickStyle.None };
             this.Controls.Add(trackBarHue);
-            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = 20, Top = 140, AutoSize = true };
-            nudBrightness = new NumericUpDown { Left = 160, Top = 140, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0–100%):", Left = 20, Top = 140, AutoSize = true };
+            nudBrightness = new NumericUpDown { Left = 160, Top = 140, Minimum = 0, Maximum = 100, DecimalPlaces = 0, Width = 80 };
             this.Controls.Add(lblBrightness);
             this.Controls.Add(nudBrightness);
             trackBarBrightness = new TrackBar { Left = 250, Top = 140, Width = 200, TickStyle = TickStyle.None };
             this.Controls.Add(trackBarBrightness);
-            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = 20, Top = 180, AutoSize = true };
-            nudContrast = new NumericUpDown { Left = 160, Top = 180, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0–100%):", Left = 20, Top = 180, AutoSize = true };
+            nudContrast = new NumericUpDown { Left = 160, Top = 180, Minimum = 0, Maximum = 100, DecimalPlaces = 0, Width = 80 };
             this.Controls.Add(lblContrast);
             this.Controls.Add(nudContrast);
             trackBarContrast = new TrackBar { Left = 250, Top = 180, Width = 200, TickStyle = TickStyle.None };
             this.Controls.Add(trackBarContrast);
-            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = 20, Top = 220, AutoSize = true };
-            nudGamma = new NumericUpDown { Left = 160, Top = 220, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.30–2.80):", Left = 20, Top = 220, AutoSize = true };
+            nudGamma = new NumericUpDown { Left = 160, Top = 220, Minimum = 0.30M, Maximum = 2.80M, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
             this.Controls.Add(lblGamma);
             this.Controls.Add(nudGamma);
             trackBarGamma = new TrackBar { Left = 250, Top = 220, Width = 200, TickStyle = TickStyle.None };
@@ -839,6 +852,10 @@ namespace NVCP_Toggle
             btnSaveChanges = new Button { Text = "Save Changes", Left = 400, Top = 280, Width = 150 };
             btnSaveChanges.Click += btnSaveChanges_Click;
             this.Controls.Add(btnSaveChanges);
+            // Add new Set Defaults button.
+            btnSetDefault = new Button { Text = "Set as Default", Left = 480, Top = 50, Width = 150 };
+            btnSetDefault.Click += btnSetDefault_Click;
+            this.Controls.Add(btnSetDefault);
             // --- Profile Management Controls ---
             FormsLabel lblProfiles = new FormsLabel { Text = "Profiles", Left = 20, Top = 310, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
             this.Controls.Add(lblProfiles);
