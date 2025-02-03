@@ -120,37 +120,37 @@ namespace NVCP_Toggle
 
         private void SetupSliderSync()
         {
-            // Vibrance.
+            // Vibrance (0–100).
             trackBarVibrance.Minimum = 0;
             trackBarVibrance.Maximum = 100;
             trackBarVibrance.Value = (int)nudVibrance.Value;
             trackBarVibrance.Scroll += (s, e) => { nudVibrance.Value = trackBarVibrance.Value; };
             nudVibrance.ValueChanged += (s, e) => { trackBarVibrance.Value = (int)nudVibrance.Value; };
 
-            // Hue.
-            trackBarHue.Minimum = -180;
-            trackBarHue.Maximum = 180;
+            // Hue (0–359).
+            trackBarHue.Minimum = 0;
+            trackBarHue.Maximum = 359;
             trackBarHue.Value = (int)nudHue.Value;
             trackBarHue.Scroll += (s, e) => { nudHue.Value = trackBarHue.Value; };
             nudHue.ValueChanged += (s, e) => { trackBarHue.Value = (int)nudHue.Value; };
 
-            // Brightness.
+            // Brightness (0–100%).
             trackBarBrightness.Minimum = 0;
-            trackBarBrightness.Maximum = 200;
-            trackBarBrightness.Value = (int)(nudBrightness.Value * 100);
-            trackBarBrightness.Scroll += (s, e) => { nudBrightness.Value = (decimal)trackBarBrightness.Value / 100; };
-            nudBrightness.ValueChanged += (s, e) => { trackBarBrightness.Value = (int)(nudBrightness.Value * 100); };
+            trackBarBrightness.Maximum = 100;
+            trackBarBrightness.Value = (int)nudBrightness.Value;
+            trackBarBrightness.Scroll += (s, e) => { nudBrightness.Value = trackBarBrightness.Value; };
+            nudBrightness.ValueChanged += (s, e) => { trackBarBrightness.Value = (int)nudBrightness.Value; };
 
-            // Contrast.
+            // Contrast (0–100%).
             trackBarContrast.Minimum = 0;
-            trackBarContrast.Maximum = 200;
-            trackBarContrast.Value = (int)(nudContrast.Value * 100);
-            trackBarContrast.Scroll += (s, e) => { nudContrast.Value = (decimal)trackBarContrast.Value / 100; };
-            nudContrast.ValueChanged += (s, e) => { trackBarContrast.Value = (int)(nudContrast.Value * 100); };
+            trackBarContrast.Maximum = 100;
+            trackBarContrast.Value = (int)nudContrast.Value;
+            trackBarContrast.Scroll += (s, e) => { nudContrast.Value = trackBarContrast.Value; };
+            nudContrast.ValueChanged += (s, e) => { trackBarContrast.Value = (int)nudContrast.Value; };
 
-            // Gamma.
-            trackBarGamma.Minimum = 0;
-            trackBarGamma.Maximum = 300;
+            // Gamma (0.30–2.80). TrackBar uses scaled values (x100).
+            trackBarGamma.Minimum = 30;
+            trackBarGamma.Maximum = 280;
             trackBarGamma.Value = (int)(nudGamma.Value * 100);
             trackBarGamma.Scroll += (s, e) => { nudGamma.Value = (decimal)trackBarGamma.Value / 100; };
             nudGamma.ValueChanged += (s, e) => { trackBarGamma.Value = (int)(nudGamma.Value * 100); };
@@ -281,8 +281,8 @@ namespace NVCP_Toggle
             currentTop += gap;
 
             // Hue.
-            FormsLabel lblHue = new FormsLabel { Text = "Hue (–180 to 180):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudHue = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = -180, Maximum = 180, Width = 80 };
+            FormsLabel lblHue = new FormsLabel { Text = "Hue (0–359):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudHue = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 359, Width = 80 };
             this.Controls.Add(lblHue);
             this.Controls.Add(nudHue);
             trackBarHue = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
@@ -290,8 +290,8 @@ namespace NVCP_Toggle
             currentTop += gap;
 
             // Brightness.
-            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0.0–2.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudBrightness = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            FormsLabel lblBrightness = new FormsLabel { Text = "Brightness (0–100%):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudBrightness = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 100, DecimalPlaces = 0, Width = 80 };
             this.Controls.Add(lblBrightness);
             this.Controls.Add(nudBrightness);
             trackBarBrightness = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
@@ -299,8 +299,8 @@ namespace NVCP_Toggle
             currentTop += gap;
 
             // Contrast.
-            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0.0–2.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudContrast = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 2, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            FormsLabel lblContrast = new FormsLabel { Text = "Contrast (0–100%):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudContrast = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 100, DecimalPlaces = 0, Width = 80 };
             this.Controls.Add(lblContrast);
             this.Controls.Add(nudContrast);
             trackBarContrast = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
@@ -308,8 +308,8 @@ namespace NVCP_Toggle
             currentTop += gap;
 
             // Gamma.
-            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.0–3.0):", Left = labelLeft, Top = currentTop, AutoSize = true };
-            nudGamma = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0, Maximum = 3, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
+            FormsLabel lblGamma = new FormsLabel { Text = "Gamma (0.30–2.80):", Left = labelLeft, Top = currentTop, AutoSize = true };
+            nudGamma = new NumericUpDown { Left = controlLeft, Top = currentTop, Minimum = 0.30M, Maximum = 2.80M, DecimalPlaces = 2, Increment = 0.1M, Width = 80 };
             this.Controls.Add(lblGamma);
             this.Controls.Add(nudGamma);
             trackBarGamma = new TrackBar { Left = controlLeft + 90, Top = currentTop, Width = 200, TickStyle = TickStyle.None };
