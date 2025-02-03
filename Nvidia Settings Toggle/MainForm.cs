@@ -160,6 +160,7 @@ namespace NVCP_Toggle
         private ComboBox cmbResolutions;
         private Button btnApplyResolution;
         private Button btnResetResolution;
+        private CheckBox chkAutoConfirmResolution; // New auto-confirm resolution checkbox.
 
         // Tray icon.
         private NotifyIcon trayIcon;
@@ -170,6 +171,13 @@ namespace NVCP_Toggle
         // Registry key and app name for auto start.
         private const string AutoStartRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string AppName = "NVCP_Toggle";
+
+        // Add fields for initial resolution.
+        private int initialWidth, initialHeight, initialFrequency, initialBpp;
+
+        // New fields for resolution backup when a profile changes it.
+        private int backupWidth, backupHeight, backupFreq, backupBpp;
+        private bool resolutionChangedByProfile = false;
 
         public MainForm()
         {
@@ -208,6 +216,7 @@ namespace NVCP_Toggle
                 nudGamma.Value = (decimal)config.GetValue<float>("gamma", DefaultGamma);
                 chkAutoSwitch.Checked = config.GetValue<bool>("autoSwitch", false);
                 chkAutoStart.Checked = config.GetValue<bool>("autoStart", false);
+                chkAutoConfirmResolution.Checked = config.GetValue<bool>("autoConfirmResolution", false); // new setting
             }
             catch (Exception ex)
             {
@@ -218,6 +227,7 @@ namespace NVCP_Toggle
             SetAutoStart(chkAutoStart.Checked);
 
             PopulateResolutions();
+            SetDefaultResolutionValues(); // set and store original resolution
             SetupTrayIcon();
             ApplyDarkTheme();
             UpdateStatusDisplay();
@@ -480,20 +490,31 @@ namespace NVCP_Toggle
                 int backupWidth = defaultWidth, backupHeight = defaultHeight, backupFreq = defaultFrequency, backupBpp = defaultBpp;
                 if (ChangeResolution(mode.Width, mode.Height, mode.Frequency, mode.BitsPerPel) == DISP_CHANGE_SUCCESSFUL)
                 {
-                    using (var confirmDlg = new ResolutionConfirmForm(15))
+                    if (chkAutoConfirmResolution.Checked)
                     {
-                        if (confirmDlg.ShowDialog() == DialogResult.OK)
+                        // Directly update default resolution without showing a message box.
+                        defaultWidth = mode.Width;
+                        defaultHeight = mode.Height;
+                        defaultFrequency = mode.Frequency;
+                        defaultBpp = mode.BitsPerPel;
+                    }
+                    else
+                    {
+                        using (var confirmDlg = new ResolutionConfirmForm(15))
                         {
-                            MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            defaultWidth = mode.Width;
-                            defaultHeight = mode.Height;
-                            defaultFrequency = mode.Frequency;
-                            defaultBpp = mode.BitsPerPel;
-                        }
-                        else
-                        {
-                            ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
-                            MessageBox.Show("Resolution change canceled. Reverted.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            if (confirmDlg.ShowDialog() == DialogResult.OK)
+                            {
+                                MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                defaultWidth = mode.Width;
+                                defaultHeight = mode.Height;
+                                defaultFrequency = mode.Frequency;
+                                defaultBpp = mode.BitsPerPel;
+                            }
+                            else
+                            {
+                                ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
+                                MessageBox.Show("Resolution change canceled. Reverted.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            }
                         }
                     }
                 }
@@ -504,8 +525,14 @@ namespace NVCP_Toggle
 
         private void btnResetResolution_Click(object? sender, EventArgs e)
         {
-            if (ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp) == DISP_CHANGE_SUCCESSFUL)
-                MessageBox.Show("Resolution reset to default.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            if (ChangeResolution(initialWidth, initialHeight, initialFrequency, initialBpp) == DISP_CHANGE_SUCCESSFUL)
+            {
+                // Update current default to initial.
+                defaultWidth = initialWidth;
+                defaultHeight = initialHeight;
+                defaultFrequency = initialFrequency;
+                defaultBpp = initialBpp;
+            }
             else
                 MessageBox.Show("Failed to reset resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
@@ -559,23 +586,40 @@ namespace NVCP_Toggle
                 if (profile.ResolutionWidth != 0 && profile.ResolutionHeight != 0 &&
                     profile.ResolutionFrequency != 0 && profile.ResolutionBpp != 0)
                 {
-                    int backupWidth = defaultWidth, backupHeight = defaultHeight, backupFreq = defaultFrequency, backupBpp = defaultBpp;
+                    // Backup current/default resolution.
+                    backupWidth = defaultWidth;
+                    backupHeight = defaultHeight;
+                    backupFreq = defaultFrequency;
+                    backupBpp = defaultBpp;
+                    
                     if (ChangeResolution(profile.ResolutionWidth, profile.ResolutionHeight, profile.ResolutionFrequency, profile.ResolutionBpp) == DISP_CHANGE_SUCCESSFUL)
                     {
-                        using (var confirmDlg = new ResolutionConfirmForm(15))
+                        if (chkAutoConfirmResolution.Checked)
                         {
-                            if (confirmDlg.ShowDialog() == DialogResult.OK)
+                            // Auto-change: Store new resolution and mark flag for later reversion.
+                            defaultWidth = profile.ResolutionWidth;
+                            defaultHeight = profile.ResolutionHeight;
+                            defaultFrequency = profile.ResolutionFrequency;
+                            defaultBpp = profile.ResolutionBpp;
+                            resolutionChangedByProfile = true;
+                        }
+                        else
+                        {
+                            using (var confirmDlg = new ResolutionConfirmForm(15))
                             {
-                                MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                                defaultWidth = profile.ResolutionWidth;
-                                defaultHeight = profile.ResolutionHeight;
-                                defaultFrequency = profile.ResolutionFrequency;
-                                defaultBpp = profile.ResolutionBpp;
-                            }
-                            else
-                            {
-                                ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
-                                MessageBox.Show("Resolution change canceled. Reverted.", "Reverted", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                if (confirmDlg.ShowDialog() == DialogResult.OK)
+                                {
+                                    MessageBox.Show("Resolution change confirmed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                    defaultWidth = profile.ResolutionWidth;
+                                    defaultHeight = profile.ResolutionHeight;
+                                    defaultFrequency = profile.ResolutionFrequency;
+                                    defaultBpp = profile.ResolutionBpp;
+                                    resolutionChangedByProfile = true;
+                                }
+                                else
+                                {
+                                    ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp);
+                                }
                             }
                         }
                     }
@@ -594,29 +638,52 @@ namespace NVCP_Toggle
                 windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness / 100f, DefaultContrast / 100f, DefaultGamma);
                 ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp);
             }
+            if (resolutionChangedByProfile)
+            {
+                if (ChangeResolution(backupWidth, backupHeight, backupFreq, backupBpp) == DISP_CHANGE_SUCCESSFUL)
+                {
+                    defaultWidth = backupWidth;
+                    defaultHeight = backupHeight;
+                    defaultFrequency = backupFreq;
+                    defaultBpp = backupBpp;
+                    resolutionChangedByProfile = false;
+                }
+                else
+                {
+                    MessageBox.Show("Failed to revert resolution.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
         }
 
         private void CheckRunningProcesses()
         {
-            foreach (var profile in profiles)
+            if (activeProfile == null)
             {
-                if (!string.IsNullOrEmpty(profile.ProcessName) &&
-                    Process.GetProcessesByName(profile.ProcessName).Length > 0)
+                // No active profile: check if any profile's process is running.
+                foreach (var profile in profiles)
                 {
-                    if (activeProfile != profile)
+                    var procs = Process.GetProcessesByName(profile.ProcessName)
+                                        .Where(p => p.MainWindowHandle != IntPtr.Zero);
+                    if (procs.Any())
                     {
-                        activeProfile = profile;
                         ApplyProfile(profile);
-                        this.Invoke((MethodInvoker)(() => UpdateStatusDisplay()));
+                        activeProfile = profile;
+                        UpdateStatusDisplay();
+                        break;
                     }
-                    return;
                 }
             }
-            if (activeProfile != null)
+            else
             {
-                activeProfile = null;
-                ResetToDefaults();
-                this.Invoke((MethodInvoker)(() => UpdateStatusDisplay()));
+                // Active profile: verify its process is still running.
+                var procs = Process.GetProcessesByName(activeProfile.ProcessName)
+                                    .Where(p => p.MainWindowHandle != IntPtr.Zero);
+                if (!procs.Any())
+                {
+                    ResetToDefaults();
+                    activeProfile = null;
+                    UpdateStatusDisplay();
+                }
             }
         }
 
@@ -686,7 +753,8 @@ namespace NVCP_Toggle
                 contrast = (float)nudContrast.Value,
                 gamma = (float)nudGamma.Value,
                 autoSwitch = chkAutoSwitch.Checked,
-                autoStart = chkAutoStart.Checked
+                autoStart = chkAutoStart.Checked,
+                autoConfirmResolution = chkAutoConfirmResolution.Checked // new setting
             };
             string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
             File.WriteAllText(Path.Combine(Application.StartupPath, "appSettings.json"), json); // changed path
@@ -805,6 +873,25 @@ namespace NVCP_Toggle
                 cmbResolutions.SelectedItem = availableModes.First();
         }
 
+        // New helper to store the original resolution.
+        private void SetDefaultResolutionValues()
+        {
+            DEVMODE dm = new DEVMODE();
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+            if(EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm))
+            {
+                defaultWidth = dm.dmPelsWidth;
+                defaultHeight = dm.dmPelsHeight;
+                defaultFrequency = dm.dmDisplayFrequency;
+                defaultBpp = dm.dmBitsPerPel;
+                // Save the initial resolution.
+                initialWidth = defaultWidth;
+                initialHeight = defaultHeight;
+                initialFrequency = defaultFrequency;
+                initialBpp = defaultBpp;
+            }
+        }
+
         #endregion
 
         #region Tray Icon Setup
@@ -847,10 +934,10 @@ namespace NVCP_Toggle
         private void InitializeComponent()
         {
             this.Text = "NVCP Profile Manager";
-            this.ClientSize = new System.Drawing.Size(650, 680);
+            this.ClientSize = new System.Drawing.Size(650, 700);
             // Make window sizable.
             this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.MinimumSize = new System.Drawing.Size(650, 680);
+            this.MinimumSize = new System.Drawing.Size(650, 700);
             this.MaximizeBox = true;
             // --- Manual Controls ---
             FormsLabel lblManual = new FormsLabel { Text = "Manual Settings", Left = 20, Top = 20, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
@@ -933,6 +1020,11 @@ namespace NVCP_Toggle
             btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 600, Width = 150 };
             btnResetResolution.Click += btnResetResolution_Click;
             this.Controls.Add(btnResetResolution);
+            // New auto-confirm resolution checkbox.
+            FormsLabel lblAutoConfirm = new FormsLabel { Text = "Auto Confirm Resolution Changes:", Left = 20, Top = 510, AutoSize = true };
+            chkAutoConfirmResolution = new CheckBox { Left = 240, Top = 510, Width = 20 };
+            this.Controls.Add(lblAutoConfirm);
+            this.Controls.Add(chkAutoConfirmResolution);
             // --- Status ---
             lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 600, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
             this.Controls.Add(lblStatus);

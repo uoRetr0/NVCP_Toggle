@@ -8,10 +8,16 @@ namespace NVCP_Toggle
         private int countdownSeconds;
         private System.Windows.Forms.Timer countdownTimer = new System.Windows.Forms.Timer();
 
-        public ResolutionConfirmForm(int seconds)
+        public ResolutionConfirmForm(int seconds, bool autoConfirm = false)
         {
-            countdownSeconds = seconds;
             InitializeComponent();
+            if (autoConfirm)
+            {
+                // Skip countdown and immediately confirm.
+                this.Shown += (s, e) => { this.DialogResult = DialogResult.OK; this.Close(); };
+                return;
+            }
+            countdownSeconds = seconds;
             UpdateLabel();
             countdownTimer.Interval = 1000;
             countdownTimer.Tick += CountdownTimer_Tick;
