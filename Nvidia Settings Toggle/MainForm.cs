@@ -239,6 +239,7 @@ namespace NVCP_Toggle
                 this.WindowState = FormWindowState.Normal;
                 this.Show();
             }
+            LoadDefaultSettings();
         }
 
         private bool CheckNvidiaSupport()
@@ -387,6 +388,7 @@ namespace NVCP_Toggle
             DefaultBrightness = (float)nudBrightness.Value;
             DefaultContrast = (float)nudContrast.Value;
             DefaultGamma = (float)nudGamma.Value;
+            SaveDefaultSettings();
             MessageBox.Show("New default settings applied.", "Defaults Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -688,6 +690,47 @@ namespace NVCP_Toggle
             };
             string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
             File.WriteAllText(Path.Combine(Application.StartupPath, "appSettings.json"), json); // changed path
+        }
+
+        private void SaveDefaultSettings()
+        {
+            try
+            {
+                var defaults = new
+                {
+                    Vibrance = DefaultVibrance,
+                    Hue = DefaultHue,
+                    Brightness = DefaultBrightness,
+                    Contrast = DefaultContrast,
+                    Gamma = DefaultGamma
+                };
+                System.IO.File.WriteAllText("defaults.json", Newtonsoft.Json.JsonConvert.SerializeObject(defaults, Newtonsoft.Json.Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error saving defaults: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LoadDefaultSettings()
+        {
+            try
+            {
+                if (System.IO.File.Exists("defaults.json"))
+                {
+                    var json = System.IO.File.ReadAllText("defaults.json");
+                    dynamic defaults = Newtonsoft.Json.JsonConvert.DeserializeObject(json);
+                    DefaultVibrance = (int)defaults.Vibrance;
+                    DefaultHue = (int)defaults.Hue;
+                    DefaultBrightness = (float)defaults.Brightness;
+                    DefaultContrast = (float)defaults.Contrast;
+                    DefaultGamma = (float)defaults.Gamma;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading defaults: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         #endregion
