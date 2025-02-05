@@ -411,7 +411,8 @@ namespace NVCP_Toggle
                 Gamma = nudGamma.Value,
                 AutoSwitch = chkAutoSwitch.Checked,
                 AutoStart = chkAutoStart.Checked,
-                AutoConfirmResolution = chkAutoConfirmResolution.Checked
+                AutoConfirmResolution = chkAutoConfirmResolution.Checked,
+                SelectedResolutionIndex = cmbResolutions.SelectedIndex
             };
 
             try
@@ -431,13 +432,29 @@ namespace NVCP_Toggle
         {
             using (var dlg = new AddEditProfileForm())
             {
-                // ...existing code for adding a profile...
+                if (dlg.ShowDialog() == DialogResult.OK)
+                {
+                    profiles.Add(dlg.Profile);
+                    SaveProfiles();
+                    UpdateProfileList();
+                }
             }
         }
 
         private void btnEditProfile_Click(object? sender, EventArgs e)
         {
-            // ...existing code for editing a profile...
+            if (lstProfiles.SelectedIndex >= 0)
+            {
+                using (var dlg = new AddEditProfileForm(profiles[lstProfiles.SelectedIndex]))
+                {
+                    if (dlg.ShowDialog() == DialogResult.OK)
+                    {
+                        profiles[lstProfiles.SelectedIndex] = dlg.Profile;
+                        SaveProfiles();
+                        UpdateProfileList();
+                    }
+                }
+            }
         }
 
         private void btnRemoveProfile_Click(object? sender, EventArgs e)
@@ -816,6 +833,9 @@ namespace NVCP_Toggle
                     chkAutoSwitch.Checked = settings.AutoSwitch;
                     chkAutoStart.Checked = settings.AutoStart;
                     chkAutoConfirmResolution.Checked = settings.AutoConfirmResolution;
+                    int savedIndex = settings.SelectedResolutionIndex == null ? 0 : (int)settings.SelectedResolutionIndex;
+                    if (savedIndex >= 0 && savedIndex < cmbResolutions.Items.Count)
+                        cmbResolutions.SelectedIndex = savedIndex;
                 }
             }
             catch (Exception ex)
