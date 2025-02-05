@@ -145,6 +145,8 @@ namespace NVCP_Toggle
         private Button? btnReset;
         private Button? btnSetDefault; // new set default button
         private Button? btnSaveSettings; // new save settings button
+        // Add new Reset All button in UI Controls section:
+        private Button? btnResetAll;
 
         // Profile management.
         private ListBox? lstProfiles;
@@ -155,6 +157,8 @@ namespace NVCP_Toggle
         private CheckBox? chkAutoSwitch;
         private CheckBox? chkAutoStart; // New auto start option.
         private FormsLabel? lblStatus;
+        // New NumericUpDown for auto switch delay (in seconds)
+        private NumericUpDown? nudAutoSwitchDelay;
 
         // Resolution changer.
         private ComboBox? cmbResolutions;
@@ -412,7 +416,8 @@ namespace NVCP_Toggle
                 AutoSwitch = chkAutoSwitch.Checked,
                 AutoStart = chkAutoStart.Checked,
                 AutoConfirmResolution = chkAutoConfirmResolution.Checked,
-                SelectedResolutionIndex = cmbResolutions.SelectedIndex
+                SelectedResolutionIndex = cmbResolutions.SelectedIndex,
+                AutoSwitchDelay = (int)nudAutoSwitchDelay!.Value // new saved setting
             };
 
             try
@@ -488,9 +493,12 @@ namespace NVCP_Toggle
 
         private void chkAutoSwitch_CheckedChanged(object? sender, EventArgs e)
         {
-            isMonitoring = chkAutoSwitch.Checked;
+            isMonitoring = chkAutoSwitch!.Checked;
             if (isMonitoring)
+            {
+                profileCheckTimer.Interval = (int)nudAutoSwitchDelay!.Value * 1000;
                 profileCheckTimer.Start();
+            }
             else
             {
                 profileCheckTimer.Stop();
@@ -564,6 +572,22 @@ namespace NVCP_Toggle
             {
                 this.Hide();
                 trayIcon.Visible = true;
+            }
+        }
+
+        private void btnResetAll_Click(object? sender, EventArgs e)
+        {
+            ResetToDefaults();
+            activeProfile = null;
+            UpdateStatusDisplay();
+
+            if (ChangeResolution(initialWidth, initialHeight, initialFrequency, initialBpp) == DISP_CHANGE_SUCCESSFUL)
+            {
+                // Update current default to initial.
+                defaultWidth = initialWidth;
+                defaultHeight = initialHeight;
+                defaultFrequency = initialFrequency;
+                defaultBpp = initialBpp;
             }
         }
 
@@ -836,6 +860,10 @@ namespace NVCP_Toggle
                     int savedIndex = settings.SelectedResolutionIndex == null ? 0 : (int)settings.SelectedResolutionIndex;
                     if (savedIndex >= 0 && savedIndex < cmbResolutions.Items.Count)
                         cmbResolutions.SelectedIndex = savedIndex;
+                    if (settings.AutoSwitchDelay != null)
+                    {
+                        nudAutoSwitchDelay!.Value = (int)settings.AutoSwitchDelay;
+                    }
                 }
             }
             catch (Exception ex)
@@ -1023,6 +1051,10 @@ namespace NVCP_Toggle
             btnReset = new Button { Text = "Reset to Defaults", Left = 240, Top = 280, Width = 150 };
             btnReset.Click += btnReset_Click;
             this.Controls.Add(btnReset);
+            // Add new Reset All button.
+            btnResetAll = new Button { Text = "Reset All", Left = 420, Top = 280, Width = 150 };
+            btnResetAll.Click += btnResetAll_Click;
+            this.Controls.Add(btnResetAll);
             // Add new Set Defaults button.
             btnSetDefault = new Button { Text = "Set as Default", Left = 480, Top = 50, Width = 150 };
             btnSetDefault.Click += btnSetDefault_Click;
@@ -1073,8 +1105,34 @@ namespace NVCP_Toggle
             // --- Status ---
             lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 600, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
             this.Controls.Add(lblStatus);
+            // Add new Auto Switch Delay label.
+            FormsLabel lblAutoSwitchDelay = new FormsLabel { Text = "Auto Switch Delay (sec):", Left = 20, Top = 310, AutoSize = true };
+            this.Controls.Add(lblAutoSwitchDelay);
+    
+            // Add new NumericUpDown for Auto Switch Delay.
+            nudAutoSwitchDelay = new NumericUpDown 
+            { 
+                Left = 200, 
+                Top = 310, 
+                Minimum = 1, 
+                Maximum = 60, 
+                Value = 5, 
+                Width = 80 
+            };
+            this.Controls.Add(nudAutoSwitchDelay);
+    
+            // Wire up its event.
+            SetupAutoSwitchDelay();
         }
 
         #endregion
+
+        private void SetupAutoSwitchDelay()
+        {
+            nudAutoSwitchDelay!.ValueChanged += (s, e) =>
+            {
+                profileCheckTimer.Interval = (int)nudAutoSwitchDelay.Value * 1000;
+            };
+        }
     }
 }
