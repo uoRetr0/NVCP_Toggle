@@ -157,8 +157,6 @@ namespace NVCP_Toggle
         private CheckBox? chkAutoSwitch;
         private CheckBox? chkAutoStart; // New auto start option.
         private FormsLabel? lblStatus;
-        // New NumericUpDown for auto switch delay (in seconds)
-        private NumericUpDown? nudAutoSwitchDelay;
 
         // Resolution changer.
         private ComboBox? cmbResolutions;
@@ -186,6 +184,16 @@ namespace NVCP_Toggle
         // Add new field:
         private bool resolutionConfirmActive = false;
 
+        private NumericUpDown nudDelayProfileOnToOff;
+        private NumericUpDown nudDelayOffToProfile;
+        private int consecutiveOnTime = 0;  // For switching from off -> profile
+        private int consecutiveOffTime = 0; // For switching from profile -> off
+        private DateTime? profileOffStartTime = null; // When the condition for turning a profile off started.
+        private DateTime? profileOnStartTime = null;  // When the condition for applying a profile started.
+
+
+
+
         public MainForm()
         {
             InitializeComponent();
@@ -206,7 +214,7 @@ namespace NVCP_Toggle
             LoadProfiles();
             UpdateProfileList();
 
-            profileCheckTimer.Interval = 5000;
+            profileCheckTimer.Interval = 1000;
             profileCheckTimer.Tick += (s, ev) => { CheckRunningProcesses(); };
 
             try
@@ -417,21 +425,14 @@ namespace NVCP_Toggle
                 AutoStart = chkAutoStart.Checked,
                 AutoConfirmResolution = chkAutoConfirmResolution.Checked,
                 SelectedResolutionIndex = cmbResolutions.SelectedIndex,
-                AutoSwitchDelay = (int)nudAutoSwitchDelay!.Value // new saved setting
+                // Save new delay settings:
+                DelayProfileOnToOff = (int)nudDelayProfileOnToOff.Value,
+                DelayOffToProfile = (int)nudDelayOffToProfile.Value
             };
-
-            try
-            {
-                string settingsJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
-                string filePath = Path.Combine(Application.StartupPath, "settings.json");
-                File.WriteAllText(filePath, settingsJson);
-                MessageBox.Show("Settings have been saved successfully!", "Settings Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error saving settings: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            var json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+            File.WriteAllText(Path.Combine(Application.StartupPath, "settings.json"), json);
         }
+
 
         private void btnAddProfile_Click(object? sender, EventArgs e)
         {
@@ -493,12 +494,9 @@ namespace NVCP_Toggle
 
         private void chkAutoSwitch_CheckedChanged(object? sender, EventArgs e)
         {
-            isMonitoring = chkAutoSwitch!.Checked;
+            isMonitoring = chkAutoSwitch.Checked;
             if (isMonitoring)
-            {
-                profileCheckTimer.Interval = (int)nudAutoSwitchDelay!.Value * 1000;
                 profileCheckTimer.Start();
-            }
             else
             {
                 profileCheckTimer.Stop();
@@ -711,9 +709,45 @@ namespace NVCP_Toggle
         private void CheckRunningProcesses()
         {
             IntPtr foreground = GetForegroundWindow();
-            if (activeProfile == null)
+            
+            // When a profile is active:
+            if (activeProfile != null)
             {
-                // Look for a profile with a process whose main window is in the foreground.
+                var procs = Process.GetProcessesByName(activeProfile.ProcessName)
+                                    .Where(p => p.MainWindowHandle != IntPtr.Zero &&
+                                                p.MainWindowHandle == foreground);
+                if (procs.Any())
+                {
+                    // The process is in the foreground; reset the off delay.
+                    profileOffStartTime = null;
+                }
+                else
+                {
+                    // The process is not in the foreground; start (or continue) the delay.
+                    if (profileOffStartTime == null)
+                    {
+                        profileOffStartTime = DateTime.Now;
+                    }
+                    else
+                    {
+                        TimeSpan offElapsed = DateTime.Now - profileOffStartTime.Value;
+                        if (offElapsed.TotalSeconds >= (double)nudDelayProfileOnToOff.Value)
+                        {
+                            // Delay elapsed: reset the profile.
+                            ResetToDefaults();
+                            activeProfile = null;
+                            profileOffStartTime = null;
+                            UpdateStatusDisplay();
+                        }
+                    }
+                }
+                // Reset the on delay when a profile is already active.
+                profileOnStartTime = null;
+            }
+            else
+            {
+                // No active profile: look for a profile whose process is in the foreground.
+                DisplayProfile matchingProfile = null;
                 foreach (var profile in profiles)
                 {
                     var procs = Process.GetProcessesByName(profile.ProcessName)
@@ -721,27 +755,40 @@ namespace NVCP_Toggle
                                                     p.MainWindowHandle == foreground);
                     if (procs.Any())
                     {
-                        ApplyProfile(profile);
-                        activeProfile = profile;
-                        UpdateStatusDisplay();
+                        matchingProfile = profile;
                         break;
                     }
                 }
-            }
-            else
-            {
-                // Check if the active profile's process window is still in the foreground.
-                var procs = Process.GetProcessesByName(activeProfile.ProcessName)
-                                    .Where(p => p.MainWindowHandle != IntPtr.Zero &&
-                                                p.MainWindowHandle == foreground);
-                if (!procs.Any())
+                if (matchingProfile != null)
                 {
-                    ResetToDefaults();
-                    activeProfile = null;
-                    UpdateStatusDisplay();
+                    // Process is present; start (or continue) the on delay.
+                    if (profileOnStartTime == null)
+                    {
+                        profileOnStartTime = DateTime.Now;
+                    }
+                    else
+                    {
+                        TimeSpan onElapsed = DateTime.Now - profileOnStartTime.Value;
+                        if (onElapsed.TotalSeconds >= (double)nudDelayOffToProfile.Value)
+                        {
+                            ApplyProfile(matchingProfile);
+                            activeProfile = matchingProfile;
+                            profileOnStartTime = null;
+                            UpdateStatusDisplay();
+                        }
+                    }
                 }
+                else
+                {
+                    // No matching process detected; reset the on delay.
+                    profileOnStartTime = null;
+                }
+                // Reset the off delay when no profile is active.
+                profileOffStartTime = null;
             }
         }
+
+
 
         #endregion
 
@@ -860,10 +907,9 @@ namespace NVCP_Toggle
                     int savedIndex = settings.SelectedResolutionIndex == null ? 0 : (int)settings.SelectedResolutionIndex;
                     if (savedIndex >= 0 && savedIndex < cmbResolutions.Items.Count)
                         cmbResolutions.SelectedIndex = savedIndex;
-                    if (settings.AutoSwitchDelay != null)
-                    {
-                        nudAutoSwitchDelay!.Value = (int)settings.AutoSwitchDelay;
-                    }
+                    // Load new delay settings
+                    nudDelayProfileOnToOff.Value = settings.DelayProfileOnToOff == null ? 0 : (int)settings.DelayProfileOnToOff;
+                    nudDelayOffToProfile.Value = settings.DelayOffToProfile == null ? 0 : (int)settings.DelayOffToProfile;
                 }
             }
             catch (Exception ex)
@@ -871,6 +917,7 @@ namespace NVCP_Toggle
                 MessageBox.Show("Error loading settings: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
 
         #endregion
 
@@ -1007,10 +1054,10 @@ namespace NVCP_Toggle
         private void InitializeComponent()
         {
             this.Text = "NVCP Profile Manager";
-            this.ClientSize = new System.Drawing.Size(650, 700);
+            this.ClientSize = new System.Drawing.Size(650, 750);
             // Make window sizable.
             this.FormBorderStyle = FormBorderStyle.Sizable;
-            this.MinimumSize = new System.Drawing.Size(650, 700);
+            this.MinimumSize = new System.Drawing.Size(650, 750);
             this.MaximizeBox = true;
             // --- Manual Controls ---
             FormsLabel lblManual = new FormsLabel { Text = "Manual Settings", Left = 20, Top = 20, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
@@ -1086,53 +1133,39 @@ namespace NVCP_Toggle
             chkAutoStart = new CheckBox { Text = "Run at Startup", Left = 20, Top = 490, AutoSize = true };
             chkAutoStart.CheckedChanged += chkAutoStart_CheckedChanged;
             this.Controls.Add(chkAutoStart);
+            // --- New Delay Option Controls ---
+            // Delay (sec) from Profile On to Off (i.e. active profile will only be reset if its process remains out-of-foreground continuously)
+            FormsLabel lblDelayProfileOnToOff = new FormsLabel { Text = "Delay (sec) from Profile On to Off:", Left = 20, Top = 520, AutoSize = true };
+            nudDelayProfileOnToOff = new NumericUpDown { Left = 220, Top = 518, Minimum = 0, Maximum = 10000000, Width = 60 };
+            this.Controls.Add(lblDelayProfileOnToOff);
+            this.Controls.Add(nudDelayProfileOnToOff);
+            // Delay (sec) from Off to Profile (i.e. a profile will only be applied if its process is in the foreground continuously)
+            FormsLabel lblDelayOffToProfile = new FormsLabel { Text = "Delay (sec) from Off to Profile:", Left = 310, Top = 520, AutoSize = true };
+            nudDelayOffToProfile = new NumericUpDown { Left = 490, Top = 518, Minimum = 0, Maximum = 10000000, Width = 60 };
+            this.Controls.Add(lblDelayOffToProfile);
+            this.Controls.Add(nudDelayOffToProfile);
             // --- Resolution Changer Controls ---
-            FormsLabel lblResolution = new FormsLabel { Text = "Resolution Changer", Left = 20, Top = 530, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            // (Shifted down by about 40 pixels to accommodate the new delay controls)
+            FormsLabel lblResolution = new FormsLabel { Text = "Resolution Changer", Left = 20, Top = 600, AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
             this.Controls.Add(lblResolution);
-            cmbResolutions = new ComboBox { Left = 20, Top = 560, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList };
+            cmbResolutions = new ComboBox { Left = 20, Top = 630, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList };
             this.Controls.Add(cmbResolutions);
-            btnApplyResolution = new Button { Text = "Apply Resolution", Left = 380, Top = 560, Width = 150 };
+            btnApplyResolution = new Button { Text = "Apply Resolution", Left = 380, Top = 630, Width = 150 };
             btnApplyResolution.Click += btnApplyResolution_Click;
             this.Controls.Add(btnApplyResolution);
-            btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 600, Width = 150 };
+            btnResetResolution = new Button { Text = "Reset Resolution", Left = 380, Top = 670, Width = 150 };
             btnResetResolution.Click += btnResetResolution_Click;
             this.Controls.Add(btnResetResolution);
             // New auto-confirm resolution checkbox.
-            FormsLabel lblAutoConfirm = new FormsLabel { Text = "Auto Confirm Resolution Changes:", Left = 20, Top = 510, AutoSize = true };
-            chkAutoConfirmResolution = new CheckBox { Left = 240, Top = 510, Width = 20 };
+            FormsLabel lblAutoConfirm = new FormsLabel { Text = "Auto Confirm Resolution Changes:", Left = 20, Top = 565, AutoSize = true };
+            chkAutoConfirmResolution = new CheckBox { Left = 240, Top = 565, Width = 20 };
             this.Controls.Add(lblAutoConfirm);
             this.Controls.Add(chkAutoConfirmResolution);
             // --- Status ---
-            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 600, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
+            lblStatus = new FormsLabel { Text = "Status", Left = 20, Top = 690, AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Width = 350, Height = 50 };
             this.Controls.Add(lblStatus);
-            // Add new Auto Switch Delay label.
-            FormsLabel lblAutoSwitchDelay = new FormsLabel { Text = "Auto Switch Delay (sec):", Left = 20, Top = 310, AutoSize = true };
-            this.Controls.Add(lblAutoSwitchDelay);
-    
-            // Add new NumericUpDown for Auto Switch Delay.
-            nudAutoSwitchDelay = new NumericUpDown 
-            { 
-                Left = 200, 
-                Top = 310, 
-                Minimum = 1, 
-                Maximum = 60, 
-                Value = 5, 
-                Width = 80 
-            };
-            this.Controls.Add(nudAutoSwitchDelay);
-    
-            // Wire up its event.
-            SetupAutoSwitchDelay();
         }
 
         #endregion
-
-        private void SetupAutoSwitchDelay()
-        {
-            nudAutoSwitchDelay!.ValueChanged += (s, e) =>
-            {
-                profileCheckTimer.Interval = (int)nudAutoSwitchDelay.Value * 1000;
-            };
-        }
     }
 }
