@@ -52,6 +52,36 @@ namespace NVCP_Toggle
             public int ResolutionBpp { get; set; }
         }
 
+        private sealed class AppSettings
+        {
+            public decimal Vibrance { get; set; }
+            public decimal Hue { get; set; }
+            public decimal Brightness { get; set; }
+            public decimal Contrast { get; set; }
+            public decimal Gamma { get; set; }
+            public bool AutoSwitch { get; set; }
+            public bool AutoStart { get; set; }
+            public bool AutoConfirmResolution { get; set; }
+            public int SelectedResolutionIndex { get; set; }
+            public int DelayProfileOnToOff { get; set; }
+            public int DelayOffToProfile { get; set; }
+
+            public AppSettings()
+            {
+                Vibrance = DefaultVibrance;
+                Hue = DefaultHue;
+                Brightness = (decimal)DefaultBrightness;
+                Contrast = (decimal)DefaultContrast;
+                Gamma = (decimal)DefaultGamma;
+                SelectedResolutionIndex = -1;
+            }
+        }
+
+        private sealed class ProfileStore
+        {
+            public List<DisplayProfile> Profiles { get; set; } = new List<DisplayProfile>();
+        }
+
         private List<DisplayProfile> profiles = new List<DisplayProfile>();
         private DisplayProfile? activeProfile = null;
         private bool isMonitoring = false;
@@ -109,6 +139,10 @@ namespace NVCP_Toggle
         const int CDS_TEST = 0x00000002;
         const int DISP_CHANGE_SUCCESSFUL = 0;
         const int DISP_CHANGE_RESTART = 1;
+        const int DM_BITSPERPEL = 0x00040000;
+        const int DM_PELSWIDTH = 0x00080000;
+        const int DM_PELSHEIGHT = 0x00100000;
+        const int DM_DISPLAYFREQUENCY = 0x00400000;
 
         private int ChangeResolution(int width, int height, int frequency, int bpp)
         {
@@ -118,7 +152,7 @@ namespace NVCP_Toggle
             dm.dmPelsHeight = height;
             dm.dmDisplayFrequency = frequency;
             dm.dmBitsPerPel = bpp;
-            dm.dmFields = 0x80000 | 0x100000 | 0x400000; // DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY
+            dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL;
 
             int ret = ChangeDisplaySettingsEx(null, ref dm, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
             if (ret == DISP_CHANGE_SUCCESSFUL)
@@ -414,25 +448,17 @@ namespace NVCP_Toggle
 
         private void btnSaveSettings_Click(object? sender, EventArgs e)
         {
-            var settings = new
+            try
             {
-                Vibrance = nudVibrance.Value,
-                Hue = nudHue.Value,
-                Brightness = nudBrightness.Value,
-                Contrast = nudContrast.Value,
-                Gamma = nudGamma.Value,
-                AutoSwitch = chkAutoSwitch.Checked,
-                AutoStart = chkAutoStart.Checked,
-                AutoConfirmResolution = chkAutoConfirmResolution.Checked,
-                SelectedResolutionIndex = cmbResolutions.SelectedIndex,
-                // Save new delay settings:
-                DelayProfileOnToOff = (int)nudDelayProfileOnToOff.Value,
-                DelayOffToProfile = (int)nudDelayOffToProfile.Value
-            };
-            var json = JsonConvert.SerializeObject(settings, Formatting.Indented);
-            File.WriteAllText(Path.Combine(Application.StartupPath, "settings.json"), json);
+                var settings = CaptureCurrentSettings();
+                var json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+                File.WriteAllText(GetSettingsFilePath(), json);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Unable to save settings:\n{ex.Message}", "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
-
 
         private void btnAddProfile_Click(object? sender, EventArgs e)
         {
@@ -500,7 +526,13 @@ namespace NVCP_Toggle
             else
             {
                 profileCheckTimer.Stop();
-                activeProfile = null;
+                if (activeProfile != null)
+                {
+                    ResetToDefaults();
+                    activeProfile = null;
+                }
+                profileOnStartTime = null;
+                profileOffStartTime = null;
             }
             UpdateStatusDisplay();
         }
@@ -599,19 +631,7 @@ namespace NVCP_Toggle
             var windowsDisplay = GetWindowsDisplay();
             if (nvDisplay != null && windowsDisplay != null)
             {
-                // Convert percent values (0–100) to ratios (0.0–1.0)
-                float normBrightness = Math.Max(0.0f, Math.Min(1.0f, brightness / 100f));
-                float normContrast = Math.Max(0.0f, Math.Min(1.0f, contrast / 100f));
-                // Gamma remains unchanged, clamped to [0.30, 2.80]
-                float clampedGamma = Math.Max(0.30f, Math.Min(2.80f, gamma));
-                try
-                {
-                    windowsDisplay.GammaRamp = new DisplayGammaRamp(normBrightness, normContrast, clampedGamma);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error applying gamma ramp: {ex.Message}", "Gamma Ramp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                ApplyGammaSettings(windowsDisplay, brightness, contrast, gamma);
                 nvDisplay.DigitalVibranceControl.CurrentLevel = vibrance;
                 nvDisplay.HUEControl.CurrentAngle = hue;
             }
@@ -625,7 +645,7 @@ namespace NVCP_Toggle
             {
                 nvDisplay.DigitalVibranceControl.CurrentLevel = profile.Vibrance;
                 nvDisplay.HUEControl.CurrentAngle = profile.Hue;
-                windowsDisplay.GammaRamp = new DisplayGammaRamp(profile.Brightness, profile.Contrast, profile.Gamma);
+                ApplyGammaSettings(windowsDisplay, profile.Brightness, profile.Contrast, profile.Gamma);
                 if (profile.ResolutionWidth != 0 && profile.ResolutionHeight != 0 &&
                     profile.ResolutionFrequency != 0 && profile.ResolutionBpp != 0)
                 {
@@ -683,7 +703,7 @@ namespace NVCP_Toggle
             {
                 nvDisplay.DigitalVibranceControl.CurrentLevel = DefaultVibrance;
                 nvDisplay.HUEControl.CurrentAngle = DefaultHue;
-                windowsDisplay.GammaRamp = new DisplayGammaRamp(DefaultBrightness / 100f, DefaultContrast / 100f, DefaultGamma);
+                ApplyGammaSettings(windowsDisplay, DefaultBrightness, DefaultContrast, DefaultGamma);
                 ChangeResolution(defaultWidth, defaultHeight, defaultFrequency, defaultBpp);
             }
             if (resolutionChangedByProfile)
@@ -706,24 +726,44 @@ namespace NVCP_Toggle
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        private string? TryGetProcessNameFromHandle(IntPtr windowHandle)
+        {
+            if (windowHandle == IntPtr.Zero)
+                return null;
+
+            try
+            {
+                if (GetWindowThreadProcessId(windowHandle, out uint processId) == 0 || processId == 0)
+                    return null;
+
+                using (var process = Process.GetProcessById((int)processId))
+                {
+                    return process.ProcessName;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private void CheckRunningProcesses()
         {
             IntPtr foreground = GetForegroundWindow();
-            
-            // When a profile is active:
+            string? foregroundProcess = TryGetProcessNameFromHandle(foreground);
+
             if (activeProfile != null)
             {
-                var procs = Process.GetProcessesByName(activeProfile.ProcessName)
-                                    .Where(p => p.MainWindowHandle != IntPtr.Zero &&
-                                                p.MainWindowHandle == foreground);
-                if (procs.Any())
+                if (!string.IsNullOrEmpty(foregroundProcess) &&
+                    string.Equals(foregroundProcess, activeProfile.ProcessName, StringComparison.OrdinalIgnoreCase))
                 {
-                    // The process is in the foreground; reset the off delay.
                     profileOffStartTime = null;
                 }
                 else
                 {
-                    // The process is not in the foreground; start (or continue) the delay.
                     if (profileOffStartTime == null)
                     {
                         profileOffStartTime = DateTime.Now;
@@ -733,7 +773,6 @@ namespace NVCP_Toggle
                         TimeSpan offElapsed = DateTime.Now - profileOffStartTime.Value;
                         if (offElapsed.TotalSeconds >= (double)nudDelayProfileOnToOff.Value)
                         {
-                            // Delay elapsed: reset the profile.
                             ResetToDefaults();
                             activeProfile = null;
                             profileOffStartTime = null;
@@ -741,50 +780,42 @@ namespace NVCP_Toggle
                         }
                     }
                 }
-                // Reset the on delay when a profile is already active.
                 profileOnStartTime = null;
+                return;
             }
-            else
+
+            profileOffStartTime = null;
+
+            if (string.IsNullOrEmpty(foregroundProcess))
             {
-                // No active profile: look for a profile whose process is in the foreground.
-                DisplayProfile matchingProfile = null;
-                foreach (var profile in profiles)
+                profileOnStartTime = null;
+                return;
+            }
+
+            var matchingProfile = profiles.FirstOrDefault(profile =>
+                string.Equals(profile.ProcessName, foregroundProcess, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingProfile != null)
+            {
+                if (profileOnStartTime == null)
                 {
-                    var procs = Process.GetProcessesByName(profile.ProcessName)
-                                        .Where(p => p.MainWindowHandle != IntPtr.Zero &&
-                                                    p.MainWindowHandle == foreground);
-                    if (procs.Any())
-                    {
-                        matchingProfile = profile;
-                        break;
-                    }
-                }
-                if (matchingProfile != null)
-                {
-                    // Process is present; start (or continue) the on delay.
-                    if (profileOnStartTime == null)
-                    {
-                        profileOnStartTime = DateTime.Now;
-                    }
-                    else
-                    {
-                        TimeSpan onElapsed = DateTime.Now - profileOnStartTime.Value;
-                        if (onElapsed.TotalSeconds >= (double)nudDelayOffToProfile.Value)
-                        {
-                            ApplyProfile(matchingProfile);
-                            activeProfile = matchingProfile;
-                            profileOnStartTime = null;
-                            UpdateStatusDisplay();
-                        }
-                    }
+                    profileOnStartTime = DateTime.Now;
                 }
                 else
                 {
-                    // No matching process detected; reset the on delay.
-                    profileOnStartTime = null;
+                    TimeSpan onElapsed = DateTime.Now - profileOnStartTime.Value;
+                    if (onElapsed.TotalSeconds >= (double)nudDelayOffToProfile.Value)
+                    {
+                        ApplyProfile(matchingProfile);
+                        activeProfile = matchingProfile;
+                        profileOnStartTime = null;
+                        UpdateStatusDisplay();
+                    }
                 }
-                // Reset the off delay when no profile is active.
-                profileOffStartTime = null;
+            }
+            else
+            {
+                profileOnStartTime = null;
             }
         }
 
@@ -831,19 +862,35 @@ namespace NVCP_Toggle
         private void LoadProfiles()
         {
             var profilePath = Path.Combine(Application.StartupPath, "profiles.json"); // changed from Environment.CurrentDirectory
-            if (File.Exists(profilePath))
+            if (!File.Exists(profilePath))
+                return;
+
+            try
             {
                 var json = File.ReadAllText(profilePath);
-                var data = JsonConvert.DeserializeObject<Dictionary<string, List<DisplayProfile>>>(json);
-                if (data != null && data.ContainsKey("Profiles"))
-                    profiles = data["Profiles"];
+                var data = JsonConvert.DeserializeObject<ProfileStore>(json);
+                if (data?.Profiles != null)
+                    profiles = data.Profiles;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load profiles:\n{ex.Message}", "Profiles Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                profiles = new List<DisplayProfile>();
             }
         }
 
         private void SaveProfiles()
         {
-            var json = JsonConvert.SerializeObject(new { Profiles = profiles }, Formatting.Indented);
-            File.WriteAllText(Path.Combine(Application.StartupPath, "profiles.json"), json); // changed path
+            try
+            {
+                var store = new ProfileStore { Profiles = profiles };
+                var json = JsonConvert.SerializeObject(store, Formatting.Indented);
+                File.WriteAllText(Path.Combine(Application.StartupPath, "profiles.json"), json); // changed path
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to save profiles:\n{ex.Message}", "Profiles Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void SaveDefaultSettings()
@@ -891,26 +938,16 @@ namespace NVCP_Toggle
         {
             try
             {
-                string filePath = Path.Combine(Application.StartupPath, "settings.json");
-                if (File.Exists(filePath))
-                {
-                    string json = File.ReadAllText(filePath);
-                    dynamic settings = JsonConvert.DeserializeObject(json);
-                    nudVibrance.Value = settings.Vibrance;
-                    nudHue.Value = settings.Hue;
-                    nudBrightness.Value = settings.Brightness;
-                    nudContrast.Value = settings.Contrast;
-                    nudGamma.Value = settings.Gamma;
-                    chkAutoSwitch.Checked = settings.AutoSwitch;
-                    chkAutoStart.Checked = settings.AutoStart;
-                    chkAutoConfirmResolution.Checked = settings.AutoConfirmResolution;
-                    int savedIndex = settings.SelectedResolutionIndex == null ? 0 : (int)settings.SelectedResolutionIndex;
-                    if (savedIndex >= 0 && savedIndex < cmbResolutions.Items.Count)
-                        cmbResolutions.SelectedIndex = savedIndex;
-                    // Load new delay settings
-                    nudDelayProfileOnToOff.Value = settings.DelayProfileOnToOff == null ? 0 : (int)settings.DelayProfileOnToOff;
-                    nudDelayOffToProfile.Value = settings.DelayOffToProfile == null ? 0 : (int)settings.DelayOffToProfile;
-                }
+                var filePath = GetSettingsFilePath();
+                if (!File.Exists(filePath))
+                    return;
+
+                string json = File.ReadAllText(filePath);
+                var settings = JsonConvert.DeserializeObject<AppSettings>(json);
+                if (settings == null)
+                    return;
+
+                ApplySettingsToControls(settings);
             }
             catch (Exception ex)
             {
@@ -918,6 +955,82 @@ namespace NVCP_Toggle
             }
         }
 
+
+        #endregion
+
+        #region Settings Helpers
+
+        private string GetSettingsFilePath() => Path.Combine(Application.StartupPath, "settings.json");
+
+        private AppSettings CaptureCurrentSettings()
+        {
+            return new AppSettings
+            {
+                Vibrance = nudVibrance.Value,
+                Hue = nudHue.Value,
+                Brightness = nudBrightness.Value,
+                Contrast = nudContrast.Value,
+                Gamma = nudGamma.Value,
+                AutoSwitch = chkAutoSwitch.Checked,
+                AutoStart = chkAutoStart.Checked,
+                AutoConfirmResolution = chkAutoConfirmResolution.Checked,
+                SelectedResolutionIndex = cmbResolutions.SelectedIndex,
+                DelayProfileOnToOff = (int)nudDelayProfileOnToOff.Value,
+                DelayOffToProfile = (int)nudDelayOffToProfile.Value
+            };
+        }
+
+        private void ApplySettingsToControls(AppSettings settings)
+        {
+            nudVibrance.Value = Clamp(settings.Vibrance, nudVibrance.Minimum, nudVibrance.Maximum);
+            nudHue.Value = Clamp(settings.Hue, nudHue.Minimum, nudHue.Maximum);
+            nudBrightness.Value = Clamp(settings.Brightness, nudBrightness.Minimum, nudBrightness.Maximum);
+            nudContrast.Value = Clamp(settings.Contrast, nudContrast.Minimum, nudContrast.Maximum);
+            nudGamma.Value = Clamp(settings.Gamma, nudGamma.Minimum, nudGamma.Maximum);
+
+            chkAutoSwitch.Checked = settings.AutoSwitch;
+            chkAutoStart.Checked = settings.AutoStart;
+            chkAutoConfirmResolution.Checked = settings.AutoConfirmResolution;
+
+            nudDelayProfileOnToOff.Value = Clamp(settings.DelayProfileOnToOff, (int)nudDelayProfileOnToOff.Minimum, (int)nudDelayProfileOnToOff.Maximum);
+            nudDelayOffToProfile.Value = Clamp(settings.DelayOffToProfile, (int)nudDelayOffToProfile.Minimum, (int)nudDelayOffToProfile.Maximum);
+
+            if (settings.SelectedResolutionIndex >= 0 && settings.SelectedResolutionIndex < cmbResolutions.Items.Count)
+            {
+                cmbResolutions.SelectedIndex = settings.SelectedResolutionIndex;
+            }
+        }
+
+        private static decimal Clamp(decimal value, decimal min, decimal max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
+        private static decimal Clamp(int value, decimal min, decimal max) => Clamp((decimal)value, min, max);
+
+        private void ApplyGammaSettings(Display windowsDisplay, float brightnessPercent, float contrastPercent, float gamma)
+        {
+            float normBrightness = ClampFloat(brightnessPercent, 0f, 100f) / 100f;
+            float normContrast = ClampFloat(contrastPercent, 0f, 100f) / 100f;
+            float clampedGamma = ClampFloat(gamma, 0.30f, 2.80f);
+            try
+            {
+                windowsDisplay.GammaRamp = new DisplayGammaRamp(normBrightness, normContrast, clampedGamma);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error applying gamma ramp: {ex.Message}", "Gamma Ramp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static float ClampFloat(float value, float min, float max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
 
         #endregion
 
